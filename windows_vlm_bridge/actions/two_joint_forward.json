@@ -1,0 +1,8 @@
+{
+  "action": "joint_deltas",
+  "deltas": {
+    "fr3_joint1": 0.01,
+    "fr3_joint3": -0.01
+  },
+  "confidence": 1.0
+}

@@ -1,0 +1,56 @@
+# ROS / CMake outputs (rebuild on each machine)
+build/
+install/
+log/
+cmake-build-*/
+
+# Downloaded dependencies are restored from dependencies.repos
+/src/libfranka/
+/src/franka_description/
+
+# Local recordings, transfer bundles, and publication exports
+/debug/
+/handoff/
+/exports/
+/datasets/
+/checkpoints/
+/models/
+session_logs/
+*.bag
+*.db3
+*.mcap
+
+# Local reports and presentation material; technical guides remain included
+/july_13_progress.md
+/docs/july_21_progress.md
+/docs/manager_project_dialogue_mandarin.md
+/docs/fr3_teacher_visit_study_guide.md
+/docs/proposal/
+
+# Python environments and generated files
+.venv*/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Machine-specific editor / agent configuration
+.vscode/
+.idea/
+.codex/
+.agents/
+.DS_Store
+Thumbs.db
+
+# Local credentials and environment settings
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key

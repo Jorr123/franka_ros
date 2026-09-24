@@ -1,0 +1,8 @@
+accelerate
+fastapi
+pillow
+pydantic
+qwen-vl-utils
+torch
+transformers
+uvicorn[standard]

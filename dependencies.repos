@@ -1,0 +1,10 @@
+# Restore exact source revisions: vcs import src < dependencies.repos
+repositories:
+  franka_description:
+    type: git
+    url: https://github.com/frankarobotics/franka_description.git
+    version: 1ccde30d5a30a710f335c9f6545528447a04bc7c
+  libfranka:
+    type: git
+    url: https://github.com/frankarobotics/libfranka.git
+    version: 4df37dd2b527f41ef34b76d6d4d3805864b09993

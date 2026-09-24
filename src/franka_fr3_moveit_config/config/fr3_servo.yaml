@@ -1,0 +1,51 @@
+###############################################
+# FR3 MoveIt Servo configuration
+###############################################
+
+use_gazebo: false
+
+# Keyboard/VLA actions are converted to physical Cartesian velocities before
+# publication, so incoming Twist values are in m/s and rad/s.
+command_in_type: "speed_units"
+scale:
+  linear: 0.01
+  rotational: 0.05
+  joint: 0.10
+
+# Servo interpolates the latest input command into short joint trajectories for
+# the existing fr3_arm_controller. The keyboard node itself runs at a lower rate.
+publish_period: 0.02
+low_latency_mode: false
+command_out_type: trajectory_msgs/JointTrajectory
+publish_joint_positions: true
+publish_joint_velocities: true
+publish_joint_accelerations: false
+smoothing_filter_plugin_name: "online_signal_smoothing::ButterworthFilterPlugin"
+
+# move_group owns the primary planning scene in the normal FR3 launch.
+is_primary_planning_scene_monitor: false
+move_group_name: fr3_arm
+planning_frame: base
+ee_frame_name: fr3_hand_tcp
+robot_link_command_frame: base
+
+# A lost keyboard/VLA stream must result in a halt. At the default 20 Hz input
+# publication rate this allows five missed messages before timing out.
+incoming_command_timeout: 0.25
+num_outgoing_halt_msgs_to_publish: 8
+
+lower_singularity_threshold: 17.0
+hard_stop_singularity_threshold: 30.0
+joint_limit_margin: 0.10
+leaving_singularity_threshold_multiplier: 2.0
+
+cartesian_command_in_topic: ~/delta_twist_cmds
+joint_command_in_topic: ~/delta_joint_cmds
+joint_topic: /joint_states
+status_topic: ~/status
+command_out_topic: /fr3_arm_controller/joint_trajectory
+
+check_collisions: true
+collision_check_rate: 10.0
+self_collision_proximity_threshold: 0.01
+scene_collision_proximity_threshold: 0.02
