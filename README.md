@@ -60,6 +60,7 @@ not establish that a new setup is ready to control physical hardware.
 
 | Topic | Guide |
 | --- | --- |
+| Read-only FR3 state for Windows | [Robot state endpoint](docs/read_only_robot_state.md) |
 | Custom Isaac joint stream controller | [Controller explanation](docs/isaac_joint_stream_controller_explained.md) |
 | Windows plan-only bridge | [Plan-only integration](docs/windows_isaac_plan_bridge.md) |
 | Bounded joint action sessions | [Multi-joint session contract](docs/bounded_multi_joint_session.md) |
