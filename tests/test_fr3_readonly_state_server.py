@@ -18,6 +18,7 @@ from fr3_readonly_state_server import (  # noqa: E402
     JOINTS,
     StateCache,
     StateHttpServer,
+    parse_args,
 )
 
 
@@ -43,6 +44,28 @@ class StateCacheTest(unittest.TestCase):
         self.addCleanup(self.clock.stop)
         self.cache = StateCache()
         self.cache.update_publishers("joints", [endpoint()])
+
+    def test_default_cli_and_cache_use_hardware_joint_state_topic(self) -> None:
+        with mock.patch.object(sys, "argv", ["fr3_readonly_state_server.py"]):
+            args = parse_args()
+        self.assertEqual(args.joint_state_topic, "/franka/joint_states")
+        self.cache.update("joints", message(), ROS_NOW)
+        status, state = self.cache.snapshot()
+        self.assertEqual(status, 200)
+        self.assertEqual(state["joint_state_topic"], args.joint_state_topic)
+
+    def test_joint_state_topic_can_be_overridden_for_namespaced_hardware(self) -> None:
+        topic = "/robot1/franka/joint_states"
+        with mock.patch.object(
+            sys, "argv", ["fr3_readonly_state_server.py", "--joint-state-topic", topic]
+        ):
+            args = parse_args()
+        cache = StateCache(joint_topic=args.joint_state_topic)
+        cache.update_publishers("joints", [endpoint()])
+        cache.update("joints", message(), ROS_NOW)
+        status, state = cache.snapshot()
+        self.assertEqual(status, 200)
+        self.assertEqual(state["joint_state_topic"], topic)
 
     def test_named_order_and_raw_gripper_width(self) -> None:
         self.cache.update("joints", message(JOINTS[::-1], range(7)), ROS_NOW)

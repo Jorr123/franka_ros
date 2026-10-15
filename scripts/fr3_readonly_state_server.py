@@ -17,6 +17,7 @@ from typing import Any
 JOINTS = tuple(f"fr3_joint{index}" for index in range(1, 8))
 FINGER_JOINTS = ("fr3_finger_joint1", "fr3_finger_joint2")
 STATE_PATH = "/v1/robot-state"
+DEFAULT_JOINT_STATE_TOPIC = "/franka/joint_states"
 GRAPH_MAX_AGE_SECONDS = 1.0
 FUTURE_STAMP_TOLERANCE_SECONDS = 0.1
 
@@ -58,7 +59,7 @@ class StateCache:
     def __init__(
         self,
         max_age_seconds: float = 1.0,
-        joint_topic: str = "/joint_states",
+        joint_topic: str = DEFAULT_JOINT_STATE_TOPIC,
         gripper_topic: str = "/franka_gripper/joint_states",
     ) -> None:
         if not math.isfinite(max_age_seconds) or max_age_seconds <= 0.0:
@@ -218,7 +219,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bind-host", default="10.10.10.1")
     parser.add_argument("--port", type=int, default=8082)
     parser.add_argument("--allowed-client", action="append", default=None)
-    parser.add_argument("--joint-state-topic", default="/joint_states")
+    parser.add_argument(
+        "--joint-state-topic",
+        default=DEFAULT_JOINT_STATE_TOPIC,
+        help="Measured hardware joint-state topic; avoid republished /joint_states",
+    )
     parser.add_argument("--gripper-state-topic", default="/franka_gripper/joint_states")
     parser.add_argument("--max-age-seconds", type=float, default=1.0)
     return parser.parse_args()

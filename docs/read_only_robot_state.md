@@ -1,7 +1,7 @@
 # Read measured FR3 state from Windows
 
 `scripts/fr3_readonly_state_server.py` runs on the Ubuntu robot-control host.
-It subscribes to `/joint_states` and `/franka_gripper/joint_states` and answers
+It subscribes to `/franka/joint_states` and `/franka_gripper/joint_states` and answers
 `GET /v1/robot-state` on the control network. It creates no motion publishers,
 planning clients, or execution clients. Windows pulls a snapshot on each GET.
 
@@ -34,29 +34,74 @@ exists. The camera client stays in the Windows/WSL workspace.
 
 ## Start on Ubuntu
 
+To start the robot stack and state server in two separate terminal windows,
+first stop any separately running copies, then run from the Ubuntu desktop:
+
+```bash
+~/franka_ros2_ws/scripts/start_robot_and_state.sh
+```
+
+Both services use ROS domain `42`. The **FR3 Robot - MoveIt** window shows the
+robot logs, and the **FR3 Read-Only State** window shows the server logs.
+Press `Ctrl+C` in each window to stop that service. The two windows run
+independently; stopping one does not stop the other. If a process exits
+normally or fails, its window waits for Enter so you can read the output.
+The HTTP endpoint may return 503 while the robot stack is starting or after
+it stops. Extra arguments to this combined launcher are forwarded to the
+robot launcher only.
+
+To start the state server separately, use the following procedure.
+
+After starting the robot with `scripts/start_robot.sh`, open a second Ubuntu
+terminal and run:
+
+```bash
+~/franka_ros2_ws/scripts/start_read_state.sh
+```
+
+This launcher sources ROS and the workspace, sets `ROS_DOMAIN_ID=42`, and
+starts the read-only server at `http://10.10.10.1:8082/v1/robot-state`.
+It uses `/franka/joint_states` and allows the Windows client at `10.10.10.2`.
+Leave the terminal open; press Ctrl+C to stop the server. Extra arguments are
+forwarded to the Python server, for example `--port 8083` or `--help`.
+
+The manual setup and source checks are shown below.
+
 Use the established robot stack and a terminal with its ROS domain and DDS
 configuration. The state service needs Python 3.10+, ROS 2 Humble `rclpy`, and
 `sensor_msgs`. No Python package installation or `colcon build` is needed for
 this standalone script.
 
+The current `scripts/start_robot.sh` launches the robot in ROS domain `42`.
+Use that domain in this terminal as well, and keep the other DDS settings the
+same as the robot terminal. The HTTP connection from Windows is separate from
+ROS discovery; Windows does not need to join the ROS domain for this endpoint.
+
 ```bash
 cd ~/franka_ros2_ws
 source /opt/ros/humble/setup.bash
 source install/setup.bash
-ros2 topic info /joint_states --verbose
-ros2 topic echo /joint_states --once
+export ROS_DOMAIN_ID=42
+ros2 topic info /franka/joint_states --verbose
+ros2 topic echo /franka/joint_states --once
 ros2 topic info /franka_gripper/joint_states --verbose
 ```
 
 Confirm exactly one arm-state publisher and that it is the established real
 robot source (normally `joint_state_broadcaster`). Names must include
-`fr3_joint1` through `fr3_joint7`. Run the service in the same terminal:
+`fr3_joint1` through `fr3_joint7`.
+
+The current MoveIt launch remaps the hardware broadcaster to
+`/franka/joint_states`. Its separate `joint_state_publisher` republishes state
+on `/joint_states`; use the hardware topic so freshness checks are applied to
+the original measured samples. Run the service in the same terminal:
 
 ```bash
 python3 scripts/fr3_readonly_state_server.py \
   --bind-host 10.10.10.1 \
   --port 8082 \
-  --allowed-client 10.10.10.2
+  --allowed-client 10.10.10.2 \
+  --joint-state-topic /franka/joint_states
 ```
 
 The service only reads the already running ROS stack. Its startup does not

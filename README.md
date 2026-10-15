@@ -20,6 +20,39 @@ The inspected environment is Ubuntu 22.04.5 with ROS 2 Humble. The source
 snapshot records the installed dependency revisions; a fresh Windows WSL build
 has not been validated. Source access alone does not require a ROS installation.
 
+## Start the robot stack
+
+With the robot ready and FCI enabled in Franka Desk, run this in an Ubuntu terminal:
+
+```bash
+~/franka_ros2_ws/scripts/start_robot_and_state.sh
+```
+
+This opens two separate terminal windows on the Ubuntu desktop: **FR3 Robot -
+MoveIt** and **FR3 Read-Only State**. Stop any separately running copies first.
+Each window shows its own logs; press `Ctrl+C` in each window to stop its service.
+The windows run independently. The state endpoint can report unavailable while
+the robot stack is starting or after the robot stack stops.
+
+To start the robot stack on its own:
+
+```bash
+~/franka_ros2_ws/scripts/start_robot.sh
+```
+
+The launcher sources ROS 2 Humble and this workspace, sets `ROS_DOMAIN_ID=42`,
+and starts MoveIt for the robot at `172.16.0.2`. Leave the terminal open; press
+`Ctrl+C` to stop the launch. Use `ROS_DOMAIN_ID=42` in other ROS terminals too.
+
+To serve measured robot state to Windows, open a second terminal and run:
+
+```bash
+~/franka_ros2_ws/scripts/start_read_state.sh
+```
+
+This launcher also sources ROS and sets domain `42`. See the
+[state endpoint guide](docs/read_only_robot_state.md) for Windows access.
+
 ## Repository layout
 
 | Path | Contents |
