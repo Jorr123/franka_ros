@@ -213,8 +213,10 @@ class CoreTest(unittest.TestCase):
         self.assertEqual(args.state_topic, "/franka/joint_states")
         self.assertEqual(args.max_delta, 0.1)
         self.assertEqual(args.max_total_delta, 0.4)
+        self.assertEqual(args.velocity_scaling, 0.3)
+        self.assertEqual(args.acceleration_scaling, 0.3)
         validate_config(args)
-        for option, value in (("--max-delta", "0.101"), ("--max-total-delta", "0.401"), ("--velocity-scaling", "0.1"), ("--start-state-tolerance", "0.01")):
+        for option, value in (("--max-delta", "0.101"), ("--max-total-delta", "0.401"), ("--velocity-scaling", "0.301"), ("--acceleration-scaling", "0.301"), ("--start-state-tolerance", "0.01")):
             with self.subTest(option=option), self.assertRaises(ValueError):
                 validate_config(parse_args([option, value]))
 
