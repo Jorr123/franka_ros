@@ -11,6 +11,8 @@ import uuid
 
 MODE = "VALIDATION_ONLY"
 PATH = "/v1/action-proposals/dry-run"
+PLAN_MODE = "PLAN_ONLY"
+PLAN_PATH = "/v1/action-proposals/plan"
 MAX_BODY_BYTES = 64 * 1024
 JOINTS = [f"fr3_joint{index}" for index in range(1, 8)]
 STATE_FIELDS = (
@@ -128,13 +130,13 @@ class Limits:
 def make_proposal(
     *, source: str, target_joint_positions_rad: list[float], observation_state: dict,
     basis_state: dict, observation_created_at_unix_ms: int,
-    inference_completed_at_unix_ms: int, action_index: int = 0,
+    inference_completed_at_unix_ms: int, action_index: int = 0, mode: str = MODE,
 ) -> dict:
     observed = state_reference(observation_state)
     basis = state_reference(basis_state)
     target = joint_vector(target_joint_positions_rad, "target_joint_positions_rad")
     proposal = {
-        "schema_version": 1, "mode": MODE, "execution_allowed": False,
+        "schema_version": 1, "mode": mode, "execution_allowed": False,
         "request_id": str(uuid.uuid4()), "created_at_unix_ms": int(time.time() * 1000),
         "source": source,
         "prediction": {
@@ -148,11 +150,11 @@ def make_proposal(
                              for index, joint in enumerate(JOINTS)},
         "gripper_mode": "hold",
     }
-    validate_shape(proposal)
+    validate_shape(proposal, expected_mode=mode)
     return proposal
 
 
-def validate_shape(proposal: dict) -> None:
+def validate_shape(proposal: dict, *, expected_mode: str = MODE) -> None:
     keys = {
         "schema_version", "mode", "execution_allowed", "request_id", "created_at_unix_ms",
         "source", "prediction", "observation_state", "basis_state",
@@ -162,7 +164,7 @@ def validate_shape(proposal: dict) -> None:
         raise ProposalError("INVALID_PROPOSAL", "Unexpected dry-run proposal fields")
     if type(proposal["schema_version"]) is not int or proposal["schema_version"] != 1:
         raise ProposalError("INVALID_PROPOSAL", "Unsupported dry-run schema")
-    if proposal["mode"] != MODE or proposal["execution_allowed"] is not False or proposal["gripper_mode"] != "hold":
+    if expected_mode not in {MODE, PLAN_MODE} or proposal["mode"] != expected_mode or proposal["execution_allowed"] is not False or proposal["gripper_mode"] != "hold":
         raise ProposalError("EXECUTION_FORBIDDEN", "This endpoint only accepts validation-only arm proposals with gripper held")
     try:
         request_id = uuid.UUID(proposal["request_id"])
@@ -194,9 +196,9 @@ def validate_shape(proposal: dict) -> None:
             raise ProposalError("DELTA_MISMATCH", f"{joint} delta does not equal target minus measured basis")
 
 
-def evaluate_proposal(proposal: dict, current_state: dict, limits: Limits, now_unix_ms: int) -> dict:
+def evaluate_proposal(proposal: dict, current_state: dict, limits: Limits, now_unix_ms: int, *, mode: str = MODE) -> dict:
     """Validate against Ubuntu's own measurements; never plan or execute anything."""
-    validate_shape(proposal)
+    validate_shape(proposal, expected_mode=mode)
     observed = state_reference(proposal["observation_state"])
     basis = state_reference(proposal["basis_state"])
     current = state_reference(current_state)

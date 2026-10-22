@@ -77,6 +77,7 @@ class ExecutionContext:
     trajectory: Any
     start_positions: dict[str, float]
     target_positions: dict[str, float]
+    metadata: dict | None = None
 
 
 @dataclass
@@ -245,7 +246,7 @@ class RosMoveItPlanner:
         current = dict(snapshot.positions)
 
         try:
-            target = self.build_target(current, deltas)
+            target = self.resolve_target(envelope, current, deltas)
             self.validate_target_limits(target, self.args)
         except RuntimeError as error:
             raise PlanInputRejected(str(error)) from error
@@ -288,6 +289,8 @@ class RosMoveItPlanner:
                 "joints": list(trajectory.joint_names),
             },
         }
+        if success:
+            payload.update(self.inspect_trajectory(trajectory, current, target))
         execution_context = None
         if success and self.args.enable_local_execution:
             execution_context = ExecutionContext(
@@ -300,6 +303,13 @@ class RosMoveItPlanner:
             response=payload,
             execution_context=execution_context,
         )
+
+    def resolve_target(self, envelope, current, deltas):
+        """Override for adapters that carry an absolute target and starting pose."""
+        return self.build_target(current, deltas)
+
+    def inspect_trajectory(self, trajectory, current, target):
+        return {}
 
     def execute(self, context: ExecutionContext) -> dict[str, Any]:
         if not self.args.enable_local_execution:
@@ -343,10 +353,13 @@ class RosMoveItPlanner:
 
         try:
             self.node.wait_for_execute_action(timeout=self.args.server_timeout)
+            self.before_execute(context)
             result = self.node.execute(
                 context.trajectory,
                 timeout=self.args.result_timeout,
             )
+        except ExecutionRejected:
+            raise
         except RuntimeError as error:
             raise ExecutionRejected("EXECUTION_ERROR", str(error)) from error
 
@@ -387,6 +400,9 @@ class RosMoveItPlanner:
             "maximum_start_velocity_joint": start_velocity_joint,
             "verification": verification,
         }
+
+    def before_execute(self, context):
+        """Optional adapter check immediately before the trajectory is sent."""
 
 
 class SupervisorCore:
@@ -439,6 +455,16 @@ class SupervisorCore:
                 409, "REPLAY_REJECTED", f"request_id {request_id} was already used."
             )
 
+        return self.prepare_validated_plan(envelope)
+
+    def prepare_validated_plan(self, envelope) -> tuple[int, dict[str, Any]]:
+        """Internal entry point after a transport has validated its own contract.
+
+        HTTP callers of the legacy supervisor still pass signature, source,
+        freshness and replay checks in handle_plan before reaching this method.
+        """
+        request_id = envelope["request_id"]
+
         if not self.operation_lock.acquire(blocking=False):
             raise RequestFailure(409, "SUPERVISOR_BUSY", "Another operation is in progress.")
         try:
@@ -467,6 +493,7 @@ class SupervisorCore:
                 )
                 with self.record_lock:
                     self._prune_records_locked(now_monotonic)
+                    self.on_store_plan(record, envelope)
                     for existing in self.records.values():
                         if existing.status == READY_STATUS:
                             existing.status = "SUPERSEDED"
@@ -476,10 +503,16 @@ class SupervisorCore:
                             }
                     self.records[request_id] = record
                 response["approval_status"] = READY_STATUS
-                response["plan_expires_at_unix_ms"] = expires_unix_ms
+                response["plan_expires_at_unix_ms"] = record.expires_unix_ms
             return prepared.http_status, response
         finally:
             self.operation_lock.release()
+
+    def on_store_plan(self, record, envelope):
+        """Adapter hook under the record lock, before a plan becomes visible."""
+
+    def execute_context(self, context, request_id):
+        return self.planner.execute(context)
 
     def handle_local(self, request: Any) -> tuple[int, dict[str, Any]]:
         if not isinstance(request, dict):
@@ -532,7 +565,7 @@ class SupervisorCore:
                 }
 
             try:
-                result = self.planner.execute(record.execution_context)
+                result = self.execute_context(record.execution_context, request_id)
             except ExecutionRejected as error:
                 result = {
                     "status": "FAULT",
@@ -788,6 +821,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--start-state-tolerance", type=float, default=0.01)
     parser.add_argument("--max-start-velocity", type=float, default=0.01)
 
+    add_motion_arguments(parser)
+    return parser.parse_args()
+
+
+def add_motion_arguments(parser) -> None:
+    """MoveIt and verification options shared with the Cosmos adapter."""
     parser.add_argument("--min-confidence", type=float, default=0.70)
     parser.add_argument("--max-delta", type=float, default=0.03)
     parser.add_argument("--max-total-delta", type=float, default=0.03)
@@ -820,7 +859,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--non-commanded-drift-limit", type=float, default=0.01)
     parser.add_argument("--max-settled-velocity", type=float, default=0.01)
     parser.add_argument("--minimum-measured-delta", type=float, default=0.001)
-    return parser.parse_args()
 
 
 def validate_args(args: argparse.Namespace) -> set[str]:

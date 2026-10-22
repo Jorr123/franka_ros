@@ -19,6 +19,9 @@ from .protocol import (
 
 class DryRunServer(ThreadingHTTPServer):
     daemon_threads = True
+    mode = MODE
+    proposal_path = PATH
+    handler_class = None
 
     def __init__(self, address, *, snapshot, allowed_clients: set[str], audit_log: Path, limits: Limits | None = None):
         self.snapshot = snapshot
@@ -30,7 +33,24 @@ class DryRunServer(ThreadingHTTPServer):
             pass
         self._lock = threading.Lock()
         self._seen = OrderedDict()
-        super().__init__(address, DryRunHandler)
+        super().__init__(address, self.handler_class or DryRunHandler)
+
+    def health(self):
+        status, _ = self.snapshot()
+        return {
+            "mode": self.mode, "execution_allowed": False, "robot_execution": False,
+            "state_available": status == 200, "limits": asdict(self.limits),
+        }
+
+    def process_proposal(self, proposal, state):
+        return 200, {
+            "validation": evaluate_proposal(proposal, state, self.limits, int(time.time() * 1000)),
+            "decision": "ACCEPTED_FOR_DRY_RUN", "code": "VALIDATED",
+            "reason": "Format, state drift and delta bounds passed; execution remains disabled",
+        }
+
+    def discard_plan(self, proposal):
+        """Planning subclasses revoke stored approval if receipt logging fails."""
 
     def reserve_request(self, request_id: str) -> None:
         now = time.monotonic()
@@ -57,7 +77,7 @@ class DryRunHandler(BaseHTTPRequestHandler):
 
     def _allowed(self) -> bool:
         if self.client_address[0] not in self.server.allowed_clients:
-            self._send(403, {"mode": MODE, "execution_allowed": False, "reason": "Client IP is not allowed"})
+            self._send(403, {"mode": self.server.mode, "execution_allowed": False, "reason": "Client IP is not allowed"})
             return False
         return True
 
@@ -65,24 +85,20 @@ class DryRunHandler(BaseHTTPRequestHandler):
         if not self._allowed():
             return
         if self.path != "/healthz":
-            self._send(404, {"mode": MODE, "execution_allowed": False, "reason": "Not found"})
+            self._send(404, {"mode": self.server.mode, "execution_allowed": False, "reason": "Not found"})
             return
-        status, _ = self.server.snapshot()
-        self._send(200, {
-            "mode": MODE, "execution_allowed": False, "robot_execution": False,
-            "state_available": status == 200, "limits": asdict(self.server.limits),
-        })
+        self._send(200, self.server.health())
 
     def do_POST(self):
         if not self._allowed():
             return
-        if self.path != PATH:
-            self._send(404, {"mode": MODE, "execution_allowed": False, "reason": "Not found"})
+        if self.path != self.server.proposal_path:
+            self._send(404, {"mode": self.server.mode, "execution_allowed": False, "reason": "Not found"})
             return
         body = b""
         proposal = None
         receipt = {
-            "schema_version": 1, "mode": MODE, "execution_allowed": False,
+            "schema_version": 1, "mode": self.server.mode, "execution_allowed": False,
             "robot_execution": False, "request_id": None, "proposal_sha256": None,
             "received_at_unix_ms": int(time.time() * 1000), "decision": "REJECTED",
         }
@@ -107,23 +123,27 @@ class DryRunHandler(BaseHTTPRequestHandler):
             # Echo only a valid request ID, even for rejected or malformed messages.
             if isinstance(proposal, dict) and isinstance(proposal.get("request_id"), str):
                 receipt["request_id"] = proposal["request_id"][:128]
-            validate_shape(proposal)
+            validate_shape(proposal, expected_mode=self.server.mode)
             self.server.reserve_request(proposal["request_id"])
             state_status, state = self.server.snapshot()
             if state_status != 200:
                 raise ProposalError("STATE_UNAVAILABLE", str(state.get("reason", "Live state unavailable")))
-            receipt["validation"] = evaluate_proposal(proposal, state, self.server.limits, int(time.time() * 1000))
-            receipt.update(decision="ACCEPTED_FOR_DRY_RUN", code="VALIDATED", reason="Format, state drift and delta bounds passed; execution remains disabled")
-            status = 200
+            status, result = self.server.process_proposal(proposal, state)
+            receipt.update(result)
         except ProposalError as error:
             receipt.update(code=error.code, reason=str(error))
             status = 409 if error.code == "REPLAYED_REQUEST" else 422
         except (OSError, TimeoutError) as error:
             receipt.update(code="RECEIVER_ERROR", reason=str(error))
             status = 503
+        except Exception as error:
+            self.server.discard_plan(proposal)
+            receipt.update(code="RECEIVER_ERROR", reason=f"Receiver failed: {type(error).__name__}")
+            status = 503
         try:
             self.server.record(proposal, receipt)
         except (OSError, ValueError):
+            self.server.discard_plan(proposal)
             receipt.update(decision="REJECTED", code="AUDIT_UNAVAILABLE", reason="Cannot save validation receipt")
             status = 503
         self._send(status, receipt)
