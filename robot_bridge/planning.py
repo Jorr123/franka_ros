@@ -61,9 +61,10 @@ def check_live_state(proposal, snapshot, limits, *, at_submission=True, mode=PLA
     drift = max(abs(a - b) for a, b in zip(live["joint_positions_rad"], observed["joint_positions_rad"]))
     if drift > limits.max_start_drift_rad or abs(live["gripper_width_m"] - observed["gripper_width_m"]) > limits.max_gripper_drift_m:
         raise ProposalError("START_STATE_CHANGED", "Arm or gripper changed since inference")
-    deltas = [a - b for a, b in zip(proposal["target_joint_positions_rad"], live["joint_positions_rad"])]
-    if max(abs(v) for v in deltas) > limits.max_joint_delta_rad or sum(abs(v) for v in deltas) > limits.max_total_delta_rad:
-        raise ProposalError("DELTA_LIMIT_EXCEEDED", "Target exceeds movement bounds from current joints")
+    for waypoint in proposal.get("action_chunk", {}).get("joint_positions_rad", [proposal["target_joint_positions_rad"]]):
+        deltas = [a - b for a, b in zip(waypoint, live["joint_positions_rad"])]
+        if max(abs(v) for v in deltas) > limits.max_joint_delta_rad or sum(abs(v) for v in deltas) > limits.max_total_delta_rad:
+            raise ProposalError("DELTA_LIMIT_EXCEEDED", "Target exceeds movement bounds from current joints")
     return live
 
 
@@ -105,6 +106,9 @@ class CosmosMoveItPlanner(RosMoveItPlanner):
         super().__init__(args, action_validator=validate_joint_delta_action_contract)
 
     def plan(self, envelope):
+        if "action_chunk" in envelope["cosmos_proposal"]:
+            from .chunk_planning import prepare_chunk
+            return prepare_chunk(self, envelope)
         prepared = super().plan(envelope)
         if prepared.execution_context is not None:
             prepared.execution_context.metadata = {"cosmos_proposal": deepcopy(envelope["cosmos_proposal"])}
@@ -128,6 +132,10 @@ class CosmosMoveItPlanner(RosMoveItPlanner):
         return {"trajectory": trajectory_payload(trajectory, current, target, self.limits, self.args.goal_tolerance)}
 
     def before_execute(self, context):
+        proposal = (context.metadata or {}).get("cosmos_proposal", {})
+        if "action_chunk" in proposal:
+            from .chunk_planning import check_collisions
+            check_collisions(self, [list(p.positions) for p in context.trajectory.joint_trajectory.points], proposal)
         try:
             proposal = context.metadata["cosmos_proposal"]
             sequence = self.node.joint_state_sequence

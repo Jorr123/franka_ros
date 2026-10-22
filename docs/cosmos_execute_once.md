@@ -104,6 +104,51 @@ an attempt do not consume the budget. No automatic retry, task loop, gripper
 control or network rearm is introduced. Omitting both startup flags still
 keeps execution disabled.
 
+## Configurable action chunks
+
+Windows can select `--actions-per-chunk K` (`1..32`, default `1`) on
+`plan-once`, `execute-once` and `execute-loop`. On the loop,
+`--num-chunks N` is an alias for `--max-steps N`: N counts separate fresh
+inference/execution cycles, and K counts consecutive policy actions inside
+each trajectory. For example:
+
+```powershell
+& $python "$runtime\inference\run_cosmos3.py" execute-loop `
+  --gripper-open-width-m 0.08 --prompt "pick up the object" `
+  --actions-per-chunk 4 --num-chunks 5
+```
+
+Start this Ubuntu receiver with `--allow-auto-executions 5` for that example.
+One chunk consumes one attempt. The default nominal action period is 1/15 s,
+configurable via `--action-period-seconds`. Ubuntu stretches the complete
+prefix to respect the checked-in joint limits scaled by the configured
+velocity/acceleration factors (currently 0.2). Receipt `plan.chunk` records
+the nominal/effective periods, time scale, and waypoint sample indices.
+
+For K > 1, the adapter constructs one C2 quintic trajectory through all
+unchanged targets. Adjacent movement in the same direction can flow through
+interior targets without stopping. Turns may require zero velocity. The
+trajectory starts and ends with zero velocity/acceleration. All intermediate
+targets and dense interpolated samples must remain within 0.1 rad per joint
+and 0.4 rad total from the original chunk start; larger K does not expand
+those bounds. The hash covers all selected targets and nominal timing.
+
+Dense collision/bounds samples are checked through MoveIt's
+`/check_state_validity` service at planning and again before execution.
+Sampling bounds are 0.001 rad per joint and 0.05 seconds, with at most 2048
+samples. Checks depend on the current planning scene; the adapter rejects
+blocked paths rather than using OMPL to change intermediate targets. Missing
+services, stale observations, invalid limits, oversized paths and trajectories
+exceeding the execution timeout are rejected. Gripper commands remain held.
+Final measured verification is at the end of the trajectory. New observations
+are acquired between chunks, with no mid-motion replacement.
+
+ROS 2 messages/services and PyYAML are required on Ubuntu. Chunk geometry,
+timing, bounds, collision failure and service calls are tested with fake ROS
+types and responses; hardware execution of this adapter still needs testing.
+Use `plan-once --actions-per-chunk 4 ...` to review the same path without
+movement. K=1 retains the existing single-target planning behavior.
+
 ## One attempt, then disarm
 
 With `--allow-one-auto-execution`, the server consumes its automatic permission before requesting execution.

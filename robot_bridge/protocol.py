@@ -133,6 +133,7 @@ def make_proposal(
     *, source: str, target_joint_positions_rad: list[float], observation_state: dict,
     basis_state: dict, observation_created_at_unix_ms: int,
     inference_completed_at_unix_ms: int, action_index: int = 0, mode: str = MODE,
+    action_chunk: dict | None = None,
 ) -> dict:
     observed = state_reference(observation_state)
     basis = state_reference(basis_state)
@@ -152,6 +153,8 @@ def make_proposal(
                              for index, joint in enumerate(JOINTS)},
         "gripper_mode": "hold",
     }
+    if action_chunk is not None:
+        proposal["action_chunk"] = action_chunk
     validate_shape(proposal, expected_mode=mode)
     return proposal
 
@@ -162,7 +165,7 @@ def validate_shape(proposal: dict, *, expected_mode: str = MODE) -> None:
         "source", "prediction", "observation_state", "basis_state",
         "target_joint_positions_rad", "joint_deltas_rad", "gripper_mode",
     }
-    if not isinstance(proposal, dict) or set(proposal) != keys:
+    if not isinstance(proposal, dict) or set(proposal) not in (keys, keys | {"action_chunk"}):
         raise ProposalError("INVALID_PROPOSAL", "Unexpected dry-run proposal fields")
     if type(proposal["schema_version"]) is not int or proposal["schema_version"] != 1:
         raise ProposalError("INVALID_PROPOSAL", "Unsupported dry-run schema")
@@ -189,6 +192,20 @@ def validate_shape(proposal: dict, *, expected_mode: str = MODE) -> None:
     state_reference(proposal["observation_state"])
     basis = state_reference(proposal["basis_state"])
     target = joint_vector(proposal["target_joint_positions_rad"], "target_joint_positions_rad")
+    if "action_chunk" in proposal:
+        chunk = proposal["action_chunk"]
+        if not isinstance(chunk, dict) or set(chunk) != {"joint_positions_rad", "action_period_seconds"}:
+            raise ProposalError("INVALID_CHUNK", "Invalid chunk fields")
+        positions = chunk["joint_positions_rad"]
+        if not isinstance(positions, list) or not 2 <= len(positions) <= 32:
+            raise ProposalError("INVALID_CHUNK", "Chunk must contain 2 to 32 consecutive actions")
+        for waypoint in positions:
+            joint_vector(waypoint, "chunk waypoint")
+        if positions[-1] != target or prediction["action_index"] != 0:
+            raise ProposalError("INVALID_CHUNK", "Chunk must start at action zero and end at the declared target")
+        period = number(chunk["action_period_seconds"], "action_period_seconds")
+        if not 0.01 <= period <= 1.0:
+            raise ProposalError("INVALID_CHUNK", "Action period must be between 0.01 and 1 second")
     deltas = proposal["joint_deltas_rad"]
     if not isinstance(deltas, dict) or set(deltas) != set(JOINTS):
         raise ProposalError("INVALID_JOINTS", "Deltas must name exactly FR3 joints 1-7")
@@ -238,10 +255,19 @@ def evaluate_proposal(proposal: dict, current_state: dict, limits: Limits, now_u
     if basis_drift > limits.max_basis_drift_rad:
         raise ProposalError("BASIS_STATE_CHANGED", f"Robot moved since proposal basis: {basis_drift:.6f} rad")
     target = proposal["target_joint_positions_rad"]
+    waypoints = proposal.get("action_chunk", {}).get("joint_positions_rad", [])
+    chunk_max_delta = chunk_max_total = 0.0
+    for waypoint in waypoints:
+        for reference in (basis["joint_positions_rad"], current["joint_positions_rad"]):
+            change = [abs(a - b) for a, b in zip(waypoint, reference)]
+            chunk_max_delta = max(chunk_max_delta, max(change))
+            chunk_max_total = max(chunk_max_total, sum(change))
+            if max(change) > limits.max_joint_delta_rad or sum(change) > limits.max_total_delta_rad:
+                raise ProposalError("DELTA_LIMIT_EXCEEDED", "A chunk waypoint exceeds the bounded region from the starting pose")
     current_deltas = [a - b for a, b in zip(target, current["joint_positions_rad"])]
     declared = list(proposal["joint_deltas_rad"].values())
-    max_delta = max(abs(value) for value in current_deltas + declared)
-    total = max(sum(abs(value) for value in current_deltas), sum(abs(value) for value in declared))
+    max_delta = max(chunk_max_delta, max(abs(value) for value in current_deltas + declared))
+    total = max(chunk_max_total, sum(abs(value) for value in current_deltas), sum(abs(value) for value in declared))
     if max_delta > limits.max_joint_delta_rad or total > limits.max_total_delta_rad:
         raise ProposalError("DELTA_LIMIT_EXCEEDED", f"Proposed maximum delta {max_delta:.6f} rad / L1 total {total:.6f} rad exceeds limits")
     return {
