@@ -106,7 +106,7 @@ class ExecuteOnceTest(unittest.TestCase):
 
     def test_invalid_target_does_not_plan_or_execute(self):
         self.server.auto_executions_remaining = 5
-        receipt = self.execute(self.proposal(0.11))
+        receipt = self.execute(self.proposal(0.31))
         self.assertEqual(receipt["code"], "DELTA_LIMIT_EXCEEDED")
         self.assertEqual(self.backend.executions, 0)
         self.assertEqual(self.backend.calls, 0)

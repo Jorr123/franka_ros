@@ -123,8 +123,8 @@ permission to execute and is not a collision, trajectory, or kinematic check.
 
 | Check | Limit |
 | --- | --- |
-| Per-joint delta, both declared and relative to Ubuntu's current joints | 0.1 rad |
-| Total absolute delta (L1), both representations | 0.4 rad |
+| Per-joint delta, both declared and relative to Ubuntu's current joints | 0.3 rad |
+| Total absolute delta (L1), both representations | 0.9 rad |
 | Arm movement since inference observation | 0.005 rad per joint |
 | Arm movement since fresh proposal basis | 0.002 rad per joint |
 | Gripper movement since observation | 0.001 m |
@@ -150,7 +150,7 @@ supports the dry-run path. The existing robot-execution bridge retains its
 separate authentication.
 
 Earlier tests used 0.01 rad per joint and 0.04 rad total. At the operator's
-request, current limits are 0.1 rad per joint and 0.4 rad for the absolute sum. The recorded step with maximum
+request, current limits are 0.3 rad per joint and 0.9 rad for the absolute sum. The recorded step with maximum
 0.020766 rad and total 0.052253 rad fits the updated delta bounds; freshness,
 source, pose, planning and approval checks still apply where relevant.
 

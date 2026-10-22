@@ -50,9 +50,15 @@ class ChunkTest(unittest.TestCase):
 
     def test_invalid_interior_is_rejected_even_when_final_target_is_small(self):
         message, core = self.proposal()
-        message["action_chunk"]["joint_positions_rad"][0][0] += 0.2
+        message["action_chunk"]["joint_positions_rad"][0][0] += 0.31
         with self.assertRaisesRegex(ProposalError, "chunk waypoint"):
             evaluate_proposal(message, core.snapshot()[1], Limits(), message["created_at_unix_ms"], mode=PLAN_MODE)
+
+    def test_larger_chunk_waypoint_inside_new_limits_is_accepted(self):
+        message, core = self.proposal()
+        message["action_chunk"]["joint_positions_rad"][0][6] += 0.21
+        metrics = evaluate_proposal(message, core.snapshot()[1], Limits(), message["created_at_unix_ms"], mode=PLAN_MODE)
+        self.assertAlmostEqual(metrics["max_joint_delta_rad"], 0.21)
 
     def test_protocol_rejects_bad_count_timing_and_endpoint(self):
         original, _ = self.proposal()

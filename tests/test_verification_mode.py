@@ -63,7 +63,7 @@ class VerificationModeTest(unittest.TestCase):
         for changes, code in [
             ({"velocity": 0.02}, "VERIFICATION_FAILED"),
             ({"drift": 0.003}, "VERIFICATION_FAILED"),
-            ({"error": 0.11}, "VERIFICATION_FAILED"),
+            ({"error": 0.31}, "VERIFICATION_FAILED"),
             ({"control_code": -4}, "MOVEIT_EXECUTION_FAILED"),
             ({"measurement_error": True}, "VERIFICATION_ERROR"),
         ]:

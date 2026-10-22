@@ -39,7 +39,7 @@ def parse_args(argv=None):
     parser.add_argument("--log-file", type=Path, default=Path("log/cosmos_action_plans.jsonl"))
     add_motion_arguments(parser)
     parser.set_defaults(
-        state_topic="/franka/joint_states", max_delta=0.1, max_total_delta=0.4,
+        state_topic="/franka/joint_states", max_delta=0.3, max_total_delta=0.9,
         velocity_scaling=0.2, acceleration_scaling=0.2,
         max_moving_joints=7, max_request_age=5.0, max_future_skew=1.0,
         replay_retention=300.0, record_retention=300.0,
@@ -61,7 +61,7 @@ def validate_config(args):
         raise ValueError("Bind a specific control-network IPv4 address")
     defaults = Limits()
     if args.max_delta > defaults.max_joint_delta_rad or args.max_total_delta > defaults.max_total_delta_rad or args.max_moving_joints > 7:
-        raise ValueError("Cosmos motion limits cannot exceed 0.1 rad per joint / 0.4 rad total / seven joints")
+        raise ValueError("Cosmos motion limits cannot exceed 0.3 rad per joint / 0.9 rad total / seven joints")
     if args.start_state_tolerance > defaults.max_basis_drift_rad:
         raise ValueError("Start-state tolerance cannot exceed 0.002 rad")
     if args.velocity_scaling > 0.2 or args.acceleration_scaling > 0.2:
