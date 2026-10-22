@@ -78,6 +78,24 @@ class ExecuteOnceTest(unittest.TestCase):
         self.assertEqual(self.execute()["code"], "AUTO_EXECUTION_DISARMED")
         self.assertEqual(self.backend.executions, 1)
 
+    def test_report_only_completion_is_a_warning_and_still_disarms(self):
+        result = {"status": "EXECUTED_WITH_WARNINGS", "code": "EXECUTED_WITH_WARNINGS",
+                  "verification_mode": "report-only", "moveit_execution_result": "SUCCESS",
+                  "verification": {"status": "FAILED", "measured_joint_positions": {"fr3_joint7": 0.01}}}
+        with mock.patch.object(self.backend, "execute", return_value=result):
+            receipt = self.execute()
+        self.assertEqual(receipt["decision"], "EXECUTED_WITH_WARNINGS")
+        self.assertTrue(receipt["robot_execution"])
+        self.assertEqual(receipt["execution"]["verification"]["status"], "FAILED")
+        self.assertEqual(self.execute()["code"], "AUTO_EXECUTION_DISARMED")
+
+    def test_failed_verification_details_reach_the_receipt(self):
+        failure = fixtures.ExecutionRejected("VERIFICATION_FAILED", "Test accuracy failure",
+                                            details={"verification": {"status": "FAILED", "target_error": 0.003}})
+        with mock.patch.object(self.backend, "execute", side_effect=failure):
+            receipt = self.execute()
+        self.assertEqual(receipt["execution"]["verification"]["target_error"], 0.003)
+
     def test_unknown_execution_outcome_is_not_reported_as_no_movement(self):
         with mock.patch.object(self.core, "handle_local", side_effect=RuntimeError("test lost result")):
             receipt = self.execute()

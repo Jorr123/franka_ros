@@ -83,6 +83,18 @@ def _submit(proposal, *, url, timeout, path, mode, success):
     )
     if mode == EXECUTE_MODE:
         valid_decision = valid_decision or (status in {500, 503} and receipt.get("decision") == "EXECUTION_FAILED")
+        warning = receipt.get("decision") == "EXECUTED_WITH_WARNINGS"
+        if warning:
+            execution = receipt.get("execution")
+            if (status != 200 or receipt.get("robot_execution") is not True
+                    or receipt.get("execution_attempted") is not True or not isinstance(execution, dict)
+                    or execution.get("status") != "EXECUTED_WITH_WARNINGS"
+                    or execution.get("verification_mode") != "report-only"
+                    or execution.get("moveit_execution_result") != "SUCCESS"
+                    or not isinstance(execution.get("verification"), dict)
+                    or execution["verification"].get("status") != "FAILED"):
+                raise ValueError("Execution warning receipt did not confirm report-only controller completion")
+            valid_decision = True
         if receipt.get("decision") == "VERIFIED_SUCCESS" and (
             receipt.get("robot_execution") is not True or receipt.get("execution_attempted") is not True
             or not isinstance(receipt.get("execution"), dict) or receipt["execution"].get("status") != "VERIFIED_SUCCESS"

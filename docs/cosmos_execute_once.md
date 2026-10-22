@@ -57,6 +57,30 @@ Successful output ends with `VERIFIED_SUCCESS`. The receipt includes
 This is one arm step, not a complete pickup task or a continuous policy loop.
 DROID-to-FR3 joint conventions and task suitability still need physical review.
 
+## Temporary report-only accuracy checks
+
+Normal enforcement is the default (`--verification-mode enforce`). To record
+small accuracy failures without faulting the completed controller execution,
+start Ubuntu with:
+
+```bash
+python3 scripts/fr3_cosmos_action_server.py --allow-one-auto-execution \
+  --verification-mode report-only
+```
+
+The Windows `execute-once` command is unchanged. Failed target accuracy,
+direction or minimum-motion checks return `EXECUTED_WITH_WARNINGS`, not
+`VERIFIED_SUCCESS`. The receipt and audit retain the failed report, measured
+positions and velocities. Normal enforcement failures now retain these details
+too. A passing report remains `VERIFIED_SUCCESS` in either mode.
+
+Controller faults, missing measurements, excessive settled velocity,
+non-commanded drift, or any final target error greater than the configured
+per-joint movement limit (normally 0.1 rad) still stop execution. Existing
+pre-execution and planning checks remain enforced. Report-only mode still
+disarms after one attempt; it does not enable a loop or gripper commands.
+Stop and restart without the option to restore normal enforcement.
+
 ## One attempt, then disarm
 
 The server consumes its automatic permission before requesting execution.

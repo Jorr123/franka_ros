@@ -48,7 +48,7 @@ PLAN_PATH = "/v1/actions/plan"
 HEALTH_PATH = "/health"
 MAX_LOCAL_REQUEST_BYTES = 4096
 READY_STATUS = "READY_FOR_LOCAL_APPROVAL"
-TERMINAL_STATUSES = {"VERIFIED_SUCCESS", "FAULT", "EXPIRED", "SUPERSEDED"}
+TERMINAL_STATUSES = {"VERIFIED_SUCCESS", "EXECUTED_WITH_WARNINGS", "FAULT", "EXPIRED", "SUPERSEDED"}
 
 
 class RequestFailure(RuntimeError):
@@ -67,9 +67,29 @@ class PlannerUnavailable(RuntimeError):
 
 
 class ExecutionRejected(RuntimeError):
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, *, details=None) -> None:
         super().__init__(message)
         self.code = code
+        self.details = details or {}
+
+
+def verification_outcome(report, verification, *, mode="enforce", maximum_target_error=0.1):
+    """Accuracy may be report-only; velocity, drift and large errors still block."""
+    if mode not in {"enforce", "report-only"}:
+        raise ValueError("Unknown verification mode")
+    if report.passed:
+        return "VERIFIED_SUCCESS"
+    hard_failure = (
+        not report.settled_velocity_ok or not report.non_commanded_drift_ok
+        or any(j.target_error > maximum_target_error for j in report.commanded_joints)
+    )
+    if mode == "report-only" and not hard_failure:
+        return "EXECUTED_WITH_WARNINGS"
+    raise ExecutionRejected(
+        "VERIFICATION_FAILED", "Measured post-execution joint verification failed.",
+        details={"verification": verification, "verification_mode": mode,
+                 "moveit_execution_result": "SUCCESS", "verification_hard_failure": hard_failure},
+    )
 
 
 @dataclass
@@ -380,19 +400,18 @@ class RosMoveItPlanner:
             )
         except RuntimeError as error:
             raise ExecutionRejected("VERIFICATION_ERROR", str(error)) from error
-        if not report.passed:
-            raise ExecutionRejected(
-                "VERIFICATION_FAILED",
-                "Measured post-execution joint verification failed.",
-            )
-
         verification = self.verification_report_payload(report)
         verification["measured_joint_positions"] = dict(final_snapshot.positions)
         verification["settled_joint_velocities"] = dict(final_snapshot.velocities)
+        mode = getattr(self.args, "verification_mode", "enforce")
+        outcome = verification_outcome(
+            report, verification, mode=mode, maximum_target_error=self.args.max_delta,
+        )
 
         return {
-            "status": "VERIFIED_SUCCESS",
-            "code": "VERIFIED_SUCCESS",
+            "status": outcome,
+            "code": outcome,
+            "verification_mode": mode,
             "moveit_execution_result": execution_name,
             "maximum_start_state_drift": maximum_drift,
             "maximum_start_state_drift_joint": drift_joint,
@@ -571,6 +590,7 @@ class SupervisorCore:
                     "status": "FAULT",
                     "code": error.code,
                     "message": str(error),
+                    **error.details,
                 }
             except Exception as error:
                 result = {
@@ -582,7 +602,7 @@ class SupervisorCore:
             with self.record_lock:
                 record.status = result["status"]
                 record.result = result
-            return (200 if result["status"] == "VERIFIED_SUCCESS" else 500), {
+            return (200 if result["status"] in {"VERIFIED_SUCCESS", "EXECUTED_WITH_WARNINGS"} else 500), {
                 "schema_version": SCHEMA_VERSION,
                 "request_id": request_id,
                 "action_sha256": record.action_digest,

@@ -208,7 +208,7 @@ class CosmosSupervisor(SupervisorCore):
         except ExecutionRejected as error:
             try:
                 self.audit({"event": "LOCAL_EXECUTION_RESULT", "request_id": request_id,
-                            "result": {"status": "FAULT", "code": error.code, "reason": str(error)}})
+                            "result": {"status": "FAULT", "code": error.code, "reason": str(error), **error.details}})
             except OSError:
                 pass
             raise
@@ -323,12 +323,17 @@ class ExecuteOnceServer(PlanServer):
                              "reason": f"Execution outcome unknown ({type(error).__name__}); do not retry automatically",
                              "execution_attempted": True, "robot_execution": None, "auto_execution_armed": False}
             success = result.get("status") == "VERIFIED_SUCCESS"
-            return (200 if success else 500), {
-                **receipt, "decision": "VERIFIED_SUCCESS" if success else "EXECUTION_FAILED",
+            warning = result.get("status") == "EXECUTED_WITH_WARNINGS"
+            completed = success or warning
+            reason = ("One movement executed and measured verification passed" if success
+                      else "Controller execution completed; final accuracy verification failed (report-only)" if warning
+                      else "Execution failed or could not be verified; do not retry automatically")
+            return (200 if completed else 500), {
+                **receipt, "decision": result["status"] if completed else "EXECUTION_FAILED",
                 "code": result.get("code", result.get("status", "EXECUTION_FAILED")),
-                "reason": "One movement executed and measured verification passed" if success else "Execution failed or could not be verified; do not retry automatically",
+                "reason": reason,
                 "execution": result, "execution_attempted": True,
-                "robot_execution": True if success else None, "auto_execution_armed": False,
+                "robot_execution": True if completed else None, "auto_execution_armed": False,
             }
         finally:
             self._step_lock.release()

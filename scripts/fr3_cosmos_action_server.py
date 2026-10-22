@@ -26,6 +26,8 @@ def parse_args(argv=None):
     parser.add_argument("--enable-local-execution", action="store_true")
     parser.add_argument("--allow-one-auto-execution", action="store_true",
                         help="Allow execute-once to plan/execute/verify one arm step, then disarm")
+    parser.add_argument("--verification-mode", choices=("enforce", "report-only"), default="enforce",
+                        help="Report-only records accuracy failures; velocity, drift and large errors still stop")
     parser.add_argument("--approval-socket", type=Path, default=Path("/tmp/fr3_cosmos_approval.sock"))
     parser.add_argument("--plan-ttl", type=float, default=30.0)
     parser.add_argument("--start-state-tolerance", type=float, default=0.002)
@@ -93,6 +95,7 @@ def main():
         print(f"Cosmos planning: http://{args.bind_host}:{args.port}{PLAN_PATH}", flush=True)
         print(f"ROS domain: {os.environ['ROS_DOMAIN_ID']} | Local approval enabled: {local_approval_enabled}", flush=True)
         print(f"One automatic execution armed: {args.allow_one_auto_execution}. No gripper commands are supported.", flush=True)
+        print(f"Final verification mode: {args.verification_mode}", flush=True)
         if approval is not None:
             print(f"Local approval socket: {args.approval_socket} (mode 0600)", flush=True)
         http.serve_forever(poll_interval=0.2)
