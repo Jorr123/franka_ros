@@ -40,7 +40,7 @@ def parse_args(argv=None):
     add_motion_arguments(parser)
     parser.set_defaults(
         state_topic="/franka/joint_states", max_delta=0.1, max_total_delta=0.4,
-        velocity_scaling=0.3, acceleration_scaling=0.3,
+        velocity_scaling=0.2, acceleration_scaling=0.2,
         max_moving_joints=7, max_request_age=5.0, max_future_skew=1.0,
         replay_retention=300.0, record_retention=300.0,
         verification_tolerance=0.002, joint7_verification_tolerance=0.002,
@@ -64,8 +64,8 @@ def validate_config(args):
         raise ValueError("Cosmos motion limits cannot exceed 0.1 rad per joint / 0.4 rad total / seven joints")
     if args.start_state_tolerance > defaults.max_basis_drift_rad:
         raise ValueError("Start-state tolerance cannot exceed 0.002 rad")
-    if args.velocity_scaling > 0.3 or args.acceleration_scaling > 0.3:
-        raise ValueError("Cosmos velocity and acceleration scaling cannot exceed 0.3")
+    if args.velocity_scaling > 0.2 or args.acceleration_scaling > 0.2:
+        raise ValueError("Cosmos velocity and acceleration scaling cannot exceed 0.2")
     if max(args.goal_tolerance, args.verification_tolerance, args.joint7_verification_tolerance, args.non_commanded_drift_limit) > 0.002:
         raise ValueError("Initial planning/verification tolerances cannot exceed 0.002 rad")
     return allowed, Limits(max_joint_delta_rad=args.max_delta, max_total_delta_rad=args.max_total_delta)

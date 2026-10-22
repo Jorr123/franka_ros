@@ -89,7 +89,7 @@ per joint and 0.4 rad total absolute change for one step.
 - Returned trajectories must contain ordered FR3 joints 1-7, finite values,
   increasing timestamps, and endpoints within the goal tolerance. Oversized
   review payloads are rejected (2048 waypoints / approximately 2 MiB maximum).
-- Velocity/acceleration scaling defaults to 0.3 (30%), with a maximum of 0.3. Start-state, goal and measured
+- Velocity/acceleration scaling defaults to 0.2 (20%), with a maximum of 0.2. Start-state, goal and measured
   target tolerances are at most 0.002 rad in this adapter. Joint 7 uses the same
   measured target tolerance. Existing settled-velocity and minimum-motion
   checks remain enabled.
