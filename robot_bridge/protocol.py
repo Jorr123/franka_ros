@@ -13,6 +13,8 @@ MODE = "VALIDATION_ONLY"
 PATH = "/v1/action-proposals/dry-run"
 PLAN_MODE = "PLAN_ONLY"
 PLAN_PATH = "/v1/action-proposals/plan"
+EXECUTE_MODE = "EXECUTE_ONCE"
+EXECUTE_PATH = "/v1/action-proposals/execute-once"
 MAX_BODY_BYTES = 64 * 1024
 JOINTS = [f"fr3_joint{index}" for index in range(1, 8)]
 STATE_FIELDS = (
@@ -136,7 +138,7 @@ def make_proposal(
     basis = state_reference(basis_state)
     target = joint_vector(target_joint_positions_rad, "target_joint_positions_rad")
     proposal = {
-        "schema_version": 1, "mode": mode, "execution_allowed": False,
+        "schema_version": 1, "mode": mode, "execution_allowed": mode == EXECUTE_MODE,
         "request_id": str(uuid.uuid4()), "created_at_unix_ms": int(time.time() * 1000),
         "source": source,
         "prediction": {
@@ -164,7 +166,7 @@ def validate_shape(proposal: dict, *, expected_mode: str = MODE) -> None:
         raise ProposalError("INVALID_PROPOSAL", "Unexpected dry-run proposal fields")
     if type(proposal["schema_version"]) is not int or proposal["schema_version"] != 1:
         raise ProposalError("INVALID_PROPOSAL", "Unsupported dry-run schema")
-    if expected_mode not in {MODE, PLAN_MODE} or proposal["mode"] != expected_mode or proposal["execution_allowed"] is not False or proposal["gripper_mode"] != "hold":
+    if expected_mode not in {MODE, PLAN_MODE, EXECUTE_MODE} or proposal["mode"] != expected_mode or proposal["execution_allowed"] is not (expected_mode == EXECUTE_MODE) or proposal["gripper_mode"] != "hold":
         raise ProposalError("EXECUTION_FORBIDDEN", "This endpoint only accepts validation-only arm proposals with gripper held")
     try:
         request_id = uuid.UUID(proposal["request_id"])

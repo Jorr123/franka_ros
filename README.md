@@ -97,6 +97,7 @@ not establish that a new setup is ready to control physical hardware.
 | Read-only FR3 state for Windows | [Robot state endpoint](docs/read_only_robot_state.md) |
 | Cosmos proposals without execution | [Validation-only delivery](docs/cosmos_dry_run_proposals.md) |
 | Cosmos planning and local single-step approval | [MoveIt integration](docs/cosmos_supervised_execution.md) |
+| Cosmos one-command single-step execution | [Execute once](docs/cosmos_execute_once.md) |
 | Custom Isaac joint stream controller | [Controller explanation](docs/isaac_joint_stream_controller_explained.md) |
 | Windows plan-only bridge | [Plan-only integration](docs/windows_isaac_plan_bridge.md) |
 | Bounded joint action sessions | [Multi-joint session contract](docs/bounded_multi_joint_session.md) |

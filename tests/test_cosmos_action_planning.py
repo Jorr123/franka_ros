@@ -65,7 +65,7 @@ class Backend:
             raise ExecutionRejected("VERIFICATION_FAILED", "Test measured target mismatch")
         assert context is self.context
         return {"status": "VERIFIED_SUCCESS", "code": "VERIFIED_SUCCESS",
-                "verification": {"passed": True, "measured_joint_positions": context.target_positions}}
+                "verification": {"status": "PASSED", "passed": True, "measured_joint_positions": context.target_positions}}
 
 
 class CoreTest(unittest.TestCase):

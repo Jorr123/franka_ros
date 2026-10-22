@@ -49,6 +49,9 @@ class DryRunServer(ThreadingHTTPServer):
             "reason": "Format, state drift and delta bounds passed; execution remains disabled",
         }
 
+    def request_mode(self, path):
+        return self.mode if path == self.proposal_path else None
+
     def discard_plan(self, proposal):
         """Planning subclasses revoke stored approval if receipt logging fails."""
 
@@ -92,13 +95,14 @@ class DryRunHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._allowed():
             return
-        if self.path != self.server.proposal_path:
+        request_mode = self.server.request_mode(self.path)
+        if request_mode is None:
             self._send(404, {"mode": self.server.mode, "execution_allowed": False, "reason": "Not found"})
             return
         body = b""
         proposal = None
         receipt = {
-            "schema_version": 1, "mode": self.server.mode, "execution_allowed": False,
+            "schema_version": 1, "mode": request_mode, "execution_allowed": False,
             "robot_execution": False, "request_id": None, "proposal_sha256": None,
             "received_at_unix_ms": int(time.time() * 1000), "decision": "REJECTED",
         }
@@ -123,7 +127,7 @@ class DryRunHandler(BaseHTTPRequestHandler):
             # Echo only a valid request ID, even for rejected or malformed messages.
             if isinstance(proposal, dict) and isinstance(proposal.get("request_id"), str):
                 receipt["request_id"] = proposal["request_id"][:128]
-            validate_shape(proposal, expected_mode=self.server.mode)
+            validate_shape(proposal, expected_mode=request_mode)
             self.server.reserve_request(proposal["request_id"])
             state_status, state = self.server.snapshot()
             if state_status != 200:
@@ -144,7 +148,11 @@ class DryRunHandler(BaseHTTPRequestHandler):
             self.server.record(proposal, receipt)
         except (OSError, ValueError):
             self.server.discard_plan(proposal)
-            receipt.update(decision="REJECTED", code="AUDIT_UNAVAILABLE", reason="Cannot save validation receipt")
+            if receipt.get("execution_attempted"):
+                receipt.update(decision="EXECUTION_FAILED", code="AUDIT_UNAVAILABLE",
+                               reason="Execution was attempted; cannot save its receipt. Do not retry automatically.")
+            else:
+                receipt.update(decision="REJECTED", code="AUDIT_UNAVAILABLE", reason="Cannot save validation receipt")
             status = 503
         self._send(status, receipt)
 

@@ -1,0 +1,132 @@
+"""Automatic single-step execution against fake MoveIt; never robot hardware."""
+
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+import tempfile
+import threading
+import unittest
+from unittest import mock
+
+from tests import test_cosmos_action_planning as fixtures
+from robot_bridge.client import submit_execution, submit_plan
+from robot_bridge.planning import ExecuteOnceServer, PlanServer
+from robot_bridge.protocol import EXECUTE_MODE, EXECUTE_PATH, PLAN_PATH
+from fr3_cosmos_action_server import parse_args, validate_config
+
+
+class ExecuteOnceTest(unittest.TestCase):
+    snapshot = fixtures.CoreTest.snapshot
+    proposal = fixtures.CoreTest.proposal
+
+    def setUp(self):
+        fixtures.CoreTest.setUp(self)
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.server = ExecuteOnceServer(
+            ("127.0.0.1", 0), core=self.core, allowed_clients={"127.0.0.1"},
+            audit_log=Path(self.directory.name) / "events.jsonl",
+        )
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.close)
+        self.base = f"http://127.0.0.1:{self.server.server_port}"
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=2)
+
+    def execute(self, message=None):
+        message = message or self.proposal()
+        message.update(mode=EXECUTE_MODE, execution_allowed=True)
+        return submit_execution(message, url=self.base + EXECUTE_PATH)
+
+    def test_executes_and_verifies_once_then_rejects_another_request(self):
+        receipt = self.execute()
+        self.assertEqual(receipt["decision"], "VERIFIED_SUCCESS")
+        self.assertTrue(receipt["robot_execution"])
+        self.assertTrue(receipt["execution"]["verification"]["passed"])
+        self.assertFalse(self.server.auto_execution_armed)
+        receipt = self.execute()
+        self.assertEqual(receipt["code"], "AUTO_EXECUTION_DISARMED")
+        self.assertEqual(self.backend.executions, 1)
+        self.assertEqual(self.backend.calls, 1)
+
+    def test_plan_once_never_consumes_auto_permission_or_executes(self):
+        receipt = submit_plan(self.proposal(), url=self.base + PLAN_PATH)
+        self.assertEqual(receipt["decision"], "PLAN_READY")
+        self.assertFalse(receipt["plan"]["local_approval_available"])
+        self.assertTrue(self.server.auto_execution_armed)
+        self.assertEqual(self.backend.executions, 0)
+        self.assertEqual(self.execute()["decision"], "VERIFIED_SUCCESS")
+
+    def test_concurrent_requests_can_only_execute_one_step(self):
+        messages = [self.proposal(), self.proposal()]
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            receipts = list(pool.map(self.execute, messages))
+        self.assertEqual(sum(r["decision"] == "VERIFIED_SUCCESS" for r in receipts), 1)
+        self.assertEqual(sum(r["decision"] == "REJECTED" for r in receipts), 1)
+        self.assertEqual(self.backend.executions, 1)
+
+    def test_verification_failure_disarms_and_is_not_retried(self):
+        self.backend.failure = True
+        receipt = self.execute()
+        self.assertEqual(receipt["decision"], "EXECUTION_FAILED")
+        self.assertEqual(receipt["code"], "VERIFICATION_FAILED")
+        self.assertIsNone(receipt["robot_execution"])
+        self.assertFalse(self.server.auto_execution_armed)
+        self.assertEqual(self.execute()["code"], "AUTO_EXECUTION_DISARMED")
+        self.assertEqual(self.backend.executions, 1)
+
+    def test_unknown_execution_outcome_is_not_reported_as_no_movement(self):
+        with mock.patch.object(self.core, "handle_local", side_effect=RuntimeError("test lost result")):
+            receipt = self.execute()
+        self.assertEqual(receipt["decision"], "EXECUTION_FAILED")
+        self.assertEqual(receipt["code"], "EXECUTION_OUTCOME_UNKNOWN")
+        self.assertIsNone(receipt["robot_execution"])
+        self.assertFalse(self.server.auto_execution_armed)
+
+    def test_invalid_target_does_not_plan_or_execute(self):
+        receipt = self.execute(self.proposal(0.11))
+        self.assertEqual(receipt["code"], "DELTA_LIMIT_EXCEEDED")
+        self.assertEqual(self.backend.executions, 0)
+        self.assertEqual(self.backend.calls, 0)
+
+    def test_failed_audit_before_execution_prevents_motion_and_disarms(self):
+        with mock.patch.object(self.server, "record", side_effect=OSError("test disk failure")):
+            receipt = self.execute()
+        self.assertEqual(receipt["decision"], "REJECTED")
+        self.assertEqual(receipt["code"], "AUDIT_UNAVAILABLE")
+        self.assertEqual(self.backend.executions, 0)
+        self.assertFalse(self.server.auto_execution_armed)
+
+    def test_failed_receipt_audit_after_execution_preserves_motion_outcome(self):
+        record = self.server.record
+
+        def fail_final_receipt(proposal, receipt):
+            if receipt.get("execution_attempted"):
+                raise OSError("test final audit failure")
+            return record(proposal, receipt)
+
+        with mock.patch.object(self.server, "record", side_effect=fail_final_receipt):
+            receipt = self.execute()
+        self.assertEqual(receipt["decision"], "EXECUTION_FAILED")
+        self.assertEqual(receipt["code"], "AUDIT_UNAVAILABLE")
+        self.assertTrue(receipt["robot_execution"])
+        self.assertEqual(self.backend.executions, 1)
+
+    def test_automatic_execution_is_disabled_by_default(self):
+        args = parse_args([])
+        self.assertFalse(args.allow_one_auto_execution)
+        with self.assertRaises(ValueError):
+            validate_config(parse_args(["--allow-one-auto-execution", "--enable-local-execution"]))
+        server = PlanServer(("127.0.0.1", 0), core=self.core, allowed_clients={"127.0.0.1"},
+                            audit_log=Path(self.directory.name) / "plan-only.jsonl")
+        try:
+            self.assertIsNone(server.request_mode(EXECUTE_PATH))
+        finally:
+            server.server_close()
+
+
+if __name__ == "__main__":
+    unittest.main()

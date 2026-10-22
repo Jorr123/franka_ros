@@ -12,9 +12,14 @@ arm target**, not the full 32-step policy chunk. It excludes all gripper command
 | `8084 /v1/action-proposals/status/<request-id>` | Read a stored plan/execution result |
 | `/tmp/fr3_cosmos_approval.sock` | Ubuntu-only approval, created only with explicit execution enablement |
 
-HTTP cannot execute or arm a session. The planning endpoint is restricted to
+By default HTTP cannot execute or arm a session. The planning endpoint is restricted to
 Windows `10.10.10.2` by default and needs no shared-secret configuration. Local
 approval uses the existing owner-only Unix socket and typed confirmation.
+
+For one-command execution without ID copying, use the separate opt-in
+[`execute-once` workflow](cosmos_execute_once.md). It requires
+`--allow-one-auto-execution` at startup and disarms after one attempt.
+`plan-once` always remains planning-only.
 
 ## Transfer
 

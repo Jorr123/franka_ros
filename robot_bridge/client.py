@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 from .protocol import (
-    MAX_BODY_BYTES, MODE, PATH, PLAN_MODE, PLAN_PATH, canonical_json, decode_json,
+    MAX_BODY_BYTES, MODE, PATH, PLAN_MODE, PLAN_PATH, EXECUTE_MODE, EXECUTE_PATH, canonical_json, decode_json,
     digest, validate_shape,
 )
 
@@ -29,8 +29,12 @@ def submit_plan(proposal: dict, *, url: str = "http://10.10.10.1:8084" + PLAN_PA
     return _submit(proposal, url=url, timeout=timeout, path=PLAN_PATH, mode=PLAN_MODE, success="PLAN_READY")
 
 
+def submit_execution(proposal: dict, *, url: str = "http://10.10.10.1:8084" + EXECUTE_PATH, timeout: float = 150.0) -> dict:
+    return _submit(proposal, url=url, timeout=timeout, path=EXECUTE_PATH, mode=EXECUTE_MODE, success="VERIFIED_SUCCESS")
+
+
 def _submit(proposal, *, url, timeout, path, mode, success):
-    """One POST, no redirects/proxies/retries, and no execution endpoint support."""
+    """One explicitly typed POST; no redirects, proxies or retries."""
     parsed = urlsplit(url)
     if (
         parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.path != path
@@ -53,7 +57,7 @@ def _submit(proposal, *, url, timeout, path, mode, success):
         except HTTPError as error:
             response = error
         with response:
-            maximum = 2 * 1024 * 1024 if mode == PLAN_MODE else MAX_BODY_BYTES
+            maximum = 2 * 1024 * 1024 if mode in {PLAN_MODE, EXECUTE_MODE} else MAX_BODY_BYTES
             raw = response.read(maximum + 1)
             status = response.code
             content_type = response.headers.get_content_type()
@@ -66,7 +70,7 @@ def _submit(proposal, *, url, timeout, path, mode, success):
         raise ValueError("Unsupported dry-run receipt")
     if (
         receipt.get("mode") != mode or receipt.get("execution_allowed") is not False
-        or receipt.get("robot_execution") is not False
+        or (mode != EXECUTE_MODE and receipt.get("robot_execution") is not False)
     ):
         raise ValueError("Ubuntu did not confirm validation-only mode")
     if receipt.get("request_id") != proposal["request_id"] or receipt.get("proposal_sha256") != digest(body):
@@ -77,6 +81,15 @@ def _submit(proposal, *, url, timeout, path, mode, success):
     valid_decision = (status == 200 and receipt.get("decision") == success) or (
         status in {409, 422, 503} and receipt.get("decision") == "REJECTED"
     )
+    if mode == EXECUTE_MODE:
+        valid_decision = valid_decision or (status in {500, 503} and receipt.get("decision") == "EXECUTION_FAILED")
+        if receipt.get("decision") == "VERIFIED_SUCCESS" and (
+            receipt.get("robot_execution") is not True or receipt.get("execution_attempted") is not True
+            or not isinstance(receipt.get("execution"), dict) or receipt["execution"].get("status") != "VERIFIED_SUCCESS"
+            or not isinstance(receipt["execution"].get("verification"), dict)
+            or receipt["execution"]["verification"].get("status") != "PASSED"
+        ):
+            raise ValueError("Execution receipt did not confirm measured verification")
     if not valid_decision:
         raise ValueError(f"Unexpected dry-run receipt decision or HTTP status {status}")
     return receipt

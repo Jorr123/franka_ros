@@ -1,7 +1,8 @@
 """Validated absolute targets to the existing MoveIt/local-approval supervisor.
 
-Imports of ROS remain inside RosMoveItPlanner initialization. HTTP only plans;
-the separate, mode-0600 Ubuntu approval socket can consume one frozen plan.
+Imports of ROS remain inside RosMoveItPlanner initialization. HTTP plans by
+default. ExecuteOnceServer explicitly adds one automatic execution attempt;
+the separate local-approval mode uses the existing mode-0600 Ubuntu socket.
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 import sys
+import threading
 import time
 import uuid
 
@@ -21,7 +23,7 @@ from fr3_ai_supervisor import (
     SupervisorCore, validate_joint_delta_action_contract,
 )
 from .protocol import (
-    JOINTS, PLAN_MODE, PLAN_PATH, Limits, ProposalError, canonical_json,
+    JOINTS, PLAN_MODE, PLAN_PATH, EXECUTE_MODE, EXECUTE_PATH, Limits, ProposalError, canonical_json,
     evaluate_proposal, joint_vector, number,
 )
 from .server import DryRunHandler, DryRunServer
@@ -30,12 +32,12 @@ STATUS_PATH = "/v1/action-proposals/status/"
 MAX_PLAN_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
-def check_live_state(proposal, snapshot, limits, *, at_submission=True):
+def check_live_state(proposal, snapshot, limits, *, at_submission=True, mode=PLAN_MODE):
     status, state = snapshot()
     if status != 200:
         raise ProposalError("STATE_UNAVAILABLE", str(state.get("reason", "Live state unavailable")))
     if at_submission:
-        return evaluate_proposal(proposal, state, limits, int(time.time() * 1000), mode=PLAN_MODE)
+        return evaluate_proposal(proposal, state, limits, int(time.time() * 1000), mode=mode)
 
     # At approval, request/basis timestamps describe the original submission;
     # they must never be refreshed. Check a current independent ROS sample,
@@ -154,9 +156,9 @@ class CosmosSupervisor(SupervisorCore):
                          replay_retention_seconds=300, execution_enabled=execution_enabled,
                          plan_ttl_seconds=plan_ttl_seconds)
 
-    def prepare_proposal(self, proposal):
+    def prepare_proposal(self, proposal, *, mode=PLAN_MODE):
         selected = deepcopy(proposal)
-        validation = check_live_state(selected, self.snapshot, self.limits)
+        validation = check_live_state(selected, self.snapshot, self.limits, mode=mode)
         state_status, state = self.snapshot()
         if state_status != 200:
             raise ProposalError("STATE_UNAVAILABLE", "Live state unavailable")
@@ -265,3 +267,68 @@ class PlanServer(DryRunServer):
             if record is not None and record.status == "READY_FOR_LOCAL_APPROVAL":
                 record.status = "FAULT"
                 record.result = {"status": "FAULT", "code": "AUDIT_UNAVAILABLE"}
+
+
+class ExecuteOnceServer(PlanServer):
+    """Opt-in automatic execution: one attempt per server lifetime, then disarm."""
+
+    def __init__(self, address, *, local_approval_enabled=False, **kwargs):
+        self.auto_execution_armed = True
+        self.local_approval_enabled = local_approval_enabled
+        self._step_lock = threading.Lock()
+        super().__init__(address, **kwargs)
+        if not self.core.execution_enabled:
+            raise ValueError("Automatic execution requires the execution backend")
+
+    def request_mode(self, path):
+        if path == EXECUTE_PATH:
+            return EXECUTE_MODE
+        return super().request_mode(path)
+
+    def health(self):
+        return {**super().health(), "mode": EXECUTE_MODE, "auto_execution_armed": self.auto_execution_armed,
+                "execution_allowed": self.auto_execution_armed, "remote_execution_available": self.auto_execution_armed,
+                "local_approval_available": self.local_approval_enabled,
+                "execute_once_endpoint": EXECUTE_PATH}
+
+    def process_proposal(self, proposal, state):
+        if not self._step_lock.acquire(blocking=False):
+            raise ProposalError("SUPERVISOR_BUSY", "Another planning or execution request is in progress")
+        try:
+            if proposal["mode"] != EXECUTE_MODE:
+                status, receipt = super().process_proposal(proposal, state)
+                if "plan" in receipt:
+                    receipt["plan"]["local_approval_available"] = self.local_approval_enabled
+                return status, receipt
+            if not self.auto_execution_armed:
+                raise ProposalError("AUTO_EXECUTION_DISARMED", "One execution attempt was consumed; restart with the startup flag to rearm")
+            status, receipt = self.core.prepare_proposal(proposal, mode=EXECUTE_MODE)
+            if status != 200:
+                return status, receipt
+            # Consume permission before recording/sending an execution request.
+            # A guard failure, timeout or verification fault cannot rearm it.
+            self.auto_execution_armed = False
+            receipt["plan"]["local_approval_available"] = False
+            self.record(proposal, {"event": "AUTO_EXECUTION_PLAN_READY", **receipt})
+            try:
+                result_status, result = self.core.handle_local({
+                    "operation": "execute", "request_id": proposal["request_id"],
+                    "action_sha256": receipt["plan"]["action_sha256"],
+                })
+            except RequestFailure as error:
+                return error.status, {**receipt, "decision": "REJECTED", "code": error.code,
+                                      "reason": str(error), "auto_execution_armed": False}
+            except Exception as error:
+                return 503, {**receipt, "decision": "EXECUTION_FAILED", "code": "EXECUTION_OUTCOME_UNKNOWN",
+                             "reason": f"Execution outcome unknown ({type(error).__name__}); do not retry automatically",
+                             "execution_attempted": True, "robot_execution": None, "auto_execution_armed": False}
+            success = result.get("status") == "VERIFIED_SUCCESS"
+            return (200 if success else 500), {
+                **receipt, "decision": "VERIFIED_SUCCESS" if success else "EXECUTION_FAILED",
+                "code": result.get("code", result.get("status", "EXECUTION_FAILED")),
+                "reason": "One movement executed and measured verification passed" if success else "Execution failed or could not be verified; do not retry automatically",
+                "execution": result, "execution_attempted": True,
+                "robot_execution": True if success else None, "auto_execution_armed": False,
+            }
+        finally:
+            self._step_lock.release()

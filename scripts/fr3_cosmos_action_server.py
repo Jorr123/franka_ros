@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Plan Cosmos arm targets; optionally permit one locally approved execution."""
+"""Plan Cosmos targets; optionally enable local approval or one automatic step."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import threading
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fr3_ai_supervisor import add_motion_arguments, create_approval_server, validate_args
-from robot_bridge.planning import CosmosMoveItPlanner, CosmosSupervisor, PlanServer
+from robot_bridge.planning import CosmosMoveItPlanner, CosmosSupervisor, PlanServer, ExecuteOnceServer
 from robot_bridge.protocol import Limits, PLAN_PATH
 from robot_bridge.ros_state import LiveStateMonitor
 
@@ -24,6 +24,8 @@ def parse_args(argv=None):
     parser.add_argument("--port", type=int, default=8084)
     parser.add_argument("--allowed-client", action="append")
     parser.add_argument("--enable-local-execution", action="store_true")
+    parser.add_argument("--allow-one-auto-execution", action="store_true",
+                        help="Allow execute-once to plan/execute/verify one arm step, then disarm")
     parser.add_argument("--approval-socket", type=Path, default=Path("/tmp/fr3_cosmos_approval.sock"))
     parser.add_argument("--plan-ttl", type=float, default=30.0)
     parser.add_argument("--start-state-tolerance", type=float, default=0.002)
@@ -42,6 +44,8 @@ def parse_args(argv=None):
 
 
 def validate_config(args):
+    if args.enable_local_execution and args.allow_one_auto_execution:
+        raise ValueError("Choose local approval or one automatic execution, not both modes together")
     args.allowed_client = args.allowed_client or ["10.10.10.2"]
     allowed = validate_args(args)
     address = ipaddress.IPv4Address(args.bind_host)
@@ -62,6 +66,8 @@ def validate_config(args):
 def main():
     args = parse_args()
     allowed, limits = validate_config(args)
+    local_approval_enabled = args.enable_local_execution
+    args.enable_local_execution = local_approval_enabled or args.allow_one_auto_execution
     # Match the robot/state launchers, while respecting an explicitly set domain.
     os.environ.setdefault("ROS_DOMAIN_ID", "42")
     planner = monitor = http = approval = approval_thread = None
@@ -75,14 +81,18 @@ def main():
         monitor = LiveStateMonitor(joint_topic=args.state_topic, gripper_topic=args.gripper_state_topic)
         core = CosmosSupervisor(planner, snapshot=snapshot, limits=limits,
                                 execution_enabled=args.enable_local_execution, plan_ttl_seconds=args.plan_ttl)
-        http = PlanServer((args.bind_host, args.port), core=core, allowed_clients=allowed, audit_log=args.log_file)
-        if args.enable_local_execution:
+        if args.allow_one_auto_execution:
+            http = ExecuteOnceServer((args.bind_host, args.port), core=core, allowed_clients=allowed,
+                                     audit_log=args.log_file, local_approval_enabled=local_approval_enabled)
+        else:
+            http = PlanServer((args.bind_host, args.port), core=core, allowed_clients=allowed, audit_log=args.log_file)
+        if local_approval_enabled:
             approval = create_approval_server(args.approval_socket, core)
             approval_thread = threading.Thread(target=approval.serve_forever, kwargs={"poll_interval": 0.2}, daemon=True)
             approval_thread.start()
         print(f"Cosmos planning: http://{args.bind_host}:{args.port}{PLAN_PATH}", flush=True)
-        print(f"ROS domain: {os.environ['ROS_DOMAIN_ID']} | Local execution enabled: {args.enable_local_execution}", flush=True)
-        print("HTTP cannot execute. No gripper commands are supported.", flush=True)
+        print(f"ROS domain: {os.environ['ROS_DOMAIN_ID']} | Local approval enabled: {local_approval_enabled}", flush=True)
+        print(f"One automatic execution armed: {args.allow_one_auto_execution}. No gripper commands are supported.", flush=True)
         if approval is not None:
             print(f"Local approval socket: {args.approval_socket} (mode 0600)", flush=True)
         http.serve_forever(poll_interval=0.2)
