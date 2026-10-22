@@ -14,6 +14,6 @@ done
 
 source /opt/ros/humble/setup.bash
 source "$FR3_WORKSPACE/install/setup.bash"
-export ROS_DOMAIN_ID=42
+export ROS_DOMAIN_ID=99
 
 exec python3 "$FR3_WORKSPACE/scripts/fr3_readonly_state_server.py" "$@"

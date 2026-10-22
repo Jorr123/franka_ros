@@ -41,7 +41,7 @@ new terminal with the same ROS environment:
 cd ~/franka_ros2_ws
 source /opt/ros/humble/setup.bash
 source install/setup.bash
-export ROS_DOMAIN_ID=42
+export ROS_DOMAIN_ID=99
 
 python3 scripts/fr3_cosmos_action_server.py
 ```

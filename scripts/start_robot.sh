@@ -14,7 +14,7 @@ done
 
 source /opt/ros/humble/setup.bash
 source "$FR3_WORKSPACE/install/setup.bash"
-export ROS_DOMAIN_ID=42
+export ROS_DOMAIN_ID=99
 
 exec ros2 launch franka_fr3_moveit_config moveit.launch.py \
     robot_ip:=172.16.0.2 "$@"

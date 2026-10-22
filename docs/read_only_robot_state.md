@@ -59,7 +59,7 @@ terminal and run:
 ~/franka_ros2_ws/scripts/start_read_state.sh
 ```
 
-This launcher sources ROS and the workspace, sets `ROS_DOMAIN_ID=42`, and
+This launcher sources ROS and the workspace, sets `ROS_DOMAIN_ID=99`, and
 starts the read-only server at `http://10.10.10.1:8082/v1/robot-state`.
 It uses `/franka/joint_states` and allows the Windows client at `10.10.10.2`.
 Leave the terminal open; press Ctrl+C to stop the server. Extra arguments are
@@ -81,7 +81,7 @@ ROS discovery; Windows does not need to join the ROS domain for this endpoint.
 cd ~/franka_ros2_ws
 source /opt/ros/humble/setup.bash
 source install/setup.bash
-export ROS_DOMAIN_ID=42
+export ROS_DOMAIN_ID=99
 ros2 topic info /franka/joint_states --verbose
 ros2 topic echo /franka/joint_states --once
 ros2 topic info /franka_gripper/joint_states --verbose

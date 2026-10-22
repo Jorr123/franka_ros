@@ -50,7 +50,7 @@ Use the isolated ROS domain in every Ubuntu ROS terminal:
 
 ```bash
 cd ~/franka_ros2_ws
-export ROS_DOMAIN_ID=42
+export ROS_DOMAIN_ID=99
 export ROS_LOCALHOST_ONLY=1
 source /opt/ros/humble/setup.bash
 source install/setup.bash
@@ -67,7 +67,7 @@ In another terminal with the same environment:
 
 ```bash
 cd ~/franka_ros2_ws
-export ROS_DOMAIN_ID=42
+export ROS_DOMAIN_ID=99
 export ROS_LOCALHOST_ONLY=1
 source /opt/ros/humble/setup.bash
 source install/setup.bash

@@ -69,7 +69,7 @@ def main():
     local_approval_enabled = args.enable_local_execution
     args.enable_local_execution = local_approval_enabled or args.allow_one_auto_execution
     # Match the robot/state launchers, while respecting an explicitly set domain.
-    os.environ.setdefault("ROS_DOMAIN_ID", "42")
+    os.environ.setdefault("ROS_DOMAIN_ID", "99")
     planner = monitor = http = approval = approval_thread = None
     try:
         def snapshot():

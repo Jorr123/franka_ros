@@ -68,7 +68,7 @@ If other ROS 2 or DDS participants are on the same network, use a non-default
 ROS domain in every terminal:
 
 ```bash
-export ROS_DOMAIN_ID=77
+export ROS_DOMAIN_ID=99
 ```
 
 Use the same `ROS_DOMAIN_ID` later on the Windows/Isaac side.
@@ -96,7 +96,7 @@ In terminal 1:
 
 ```bash
 cd ~/franka_ros2_ws
-export ROS_DOMAIN_ID=77
+export ROS_DOMAIN_ID=99
 source install/setup.bash
 
 ros2 launch franka_bringup franka.launch.py robot_ip:=172.16.0.2 robot_type:=fr3
@@ -111,7 +111,7 @@ In terminal 2:
 
 ```bash
 cd ~/franka_ros2_ws
-export ROS_DOMAIN_ID=77
+export ROS_DOMAIN_ID=99
 source install/setup.bash
 
 ros2 control load_controller isaac_joint_stream_controller
@@ -299,7 +299,7 @@ time, because `moveit.launch.py` starts its own `ros2_control_node`.
 
 ```bash
 cd ~/franka_ros2_ws
-export ROS_DOMAIN_ID=77
+export ROS_DOMAIN_ID=99
 source install/setup.bash
 
 ros2 launch franka_fr3_moveit_config moveit.launch.py robot_ip:=172.16.0.2
@@ -309,7 +309,7 @@ In another terminal, source the workspace:
 
 ```bash
 cd ~/franka_ros2_ws
-export ROS_DOMAIN_ID=77
+export ROS_DOMAIN_ID=99
 source install/setup.bash
 ```
 
@@ -697,7 +697,7 @@ ros2 topic info --verbose /robot_description --no-daemon
 If unknown nodes or unexpected publishers appear, isolate with:
 
 ```bash
-export ROS_DOMAIN_ID=77
+export ROS_DOMAIN_ID=99
 ros2 daemon stop
 ros2 daemon start
 ```

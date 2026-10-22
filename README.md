@@ -40,9 +40,9 @@ To start the robot stack on its own:
 ~/franka_ros2_ws/scripts/start_robot.sh
 ```
 
-The launcher sources ROS 2 Humble and this workspace, sets `ROS_DOMAIN_ID=42`,
+The launcher sources ROS 2 Humble and this workspace, sets `ROS_DOMAIN_ID=99`,
 and starts MoveIt for the robot at `172.16.0.2`. Leave the terminal open; press
-`Ctrl+C` to stop the launch. Use `ROS_DOMAIN_ID=42` in other ROS terminals too.
+`Ctrl+C` to stop the launch. Use `ROS_DOMAIN_ID=99` in other ROS terminals too.
 
 To serve measured robot state to Windows, open a second terminal and run:
 

@@ -17,7 +17,7 @@ Cosmos planning server with Ctrl+C, then in that same ROS-configured terminal:
 ```bash
 cd ~/franka_ros2_ws
 git pull --ff-only
-export ROS_DOMAIN_ID=42
+export ROS_DOMAIN_ID=99
 python3 scripts/fr3_cosmos_action_server.py --allow-one-auto-execution
 ```
 
