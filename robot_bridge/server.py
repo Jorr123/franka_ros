@@ -147,7 +147,7 @@ class DryRunHandler(BaseHTTPRequestHandler):
         try:
             self.server.record(proposal, receipt)
         except (OSError, ValueError):
-            self.server.discard_plan(proposal)
+            receipt.update(self.server.discard_plan(proposal) or {})
             if receipt.get("execution_attempted"):
                 receipt.update(decision="EXECUTION_FAILED", code="AUDIT_UNAVAILABLE",
                                reason="Execution was attempted; cannot save its receipt. Do not retry automatically.")

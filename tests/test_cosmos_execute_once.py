@@ -105,18 +105,22 @@ class ExecuteOnceTest(unittest.TestCase):
         self.assertFalse(self.server.auto_execution_armed)
 
     def test_invalid_target_does_not_plan_or_execute(self):
+        self.server.auto_executions_remaining = 5
         receipt = self.execute(self.proposal(0.11))
         self.assertEqual(receipt["code"], "DELTA_LIMIT_EXCEEDED")
         self.assertEqual(self.backend.executions, 0)
         self.assertEqual(self.backend.calls, 0)
+        self.assertEqual(self.server.auto_executions_remaining, 5)
 
     def test_failed_audit_before_execution_prevents_motion_and_disarms(self):
+        self.server.auto_executions_remaining = 5
         with mock.patch.object(self.server, "record", side_effect=OSError("test disk failure")):
             receipt = self.execute()
         self.assertEqual(receipt["decision"], "REJECTED")
         self.assertEqual(receipt["code"], "AUDIT_UNAVAILABLE")
         self.assertEqual(self.backend.executions, 0)
         self.assertFalse(self.server.auto_execution_armed)
+        self.assertEqual(self.server.auto_executions_remaining, 0)
 
     def test_failed_receipt_audit_after_execution_preserves_motion_outcome(self):
         record = self.server.record
@@ -138,6 +142,61 @@ class ExecuteOnceTest(unittest.TestCase):
         self.assertFalse(args.allow_one_auto_execution)
         with self.assertRaises(ValueError):
             validate_config(parse_args(["--allow-one-auto-execution", "--enable-local-execution"]))
+
+    def test_multiple_execution_budget_is_consumed_and_cannot_be_exceeded(self):
+        self.server.auto_executions_remaining = 3
+        for remaining in (2, 1, 0):
+            receipt = self.execute()
+            self.assertEqual(receipt["decision"], "VERIFIED_SUCCESS")
+            self.assertEqual(receipt["auto_executions_remaining"], remaining)
+            self.assertEqual(receipt["auto_execution_armed"], remaining > 0)
+        self.assertEqual(self.execute()["code"], "AUTO_EXECUTION_DISARMED")
+        self.assertEqual(self.backend.executions, 3)
+
+    def test_failure_discards_the_remaining_budget(self):
+        self.server.auto_executions_remaining = 5
+        self.backend.failure = True
+        self.assertEqual(self.execute()["decision"], "EXECUTION_FAILED")
+        self.assertEqual(self.server.auto_executions_remaining, 0)
+        self.assertEqual(self.execute()["code"], "AUTO_EXECUTION_DISARMED")
+        self.assertEqual(self.backend.executions, 1)
+
+    def test_warning_allows_next_request_within_budget(self):
+        self.server.auto_executions_remaining = 2
+        result = {"status": "EXECUTED_WITH_WARNINGS", "code": "EXECUTED_WITH_WARNINGS",
+                  "verification_mode": "report-only", "moveit_execution_result": "SUCCESS",
+                  "verification": {"status": "FAILED"}}
+        with mock.patch.object(self.backend, "execute", return_value=result):
+            receipt = self.execute()
+        self.assertTrue(receipt["auto_execution_armed"])
+        self.assertEqual(self.execute()["decision"], "VERIFIED_SUCCESS")
+        self.assertFalse(self.server.auto_execution_armed)
+
+    def test_receipt_audit_failure_discards_unused_budget(self):
+        self.server.auto_executions_remaining = 5
+        record = self.server.record
+
+        def fail_final(proposal, receipt):
+            if receipt.get("execution_attempted"):
+                raise OSError("test audit failure")
+            return record(proposal, receipt)
+
+        with mock.patch.object(self.server, "record", side_effect=fail_final):
+            receipt = self.execute()
+        self.assertEqual(receipt["code"], "AUDIT_UNAVAILABLE")
+        self.assertFalse(receipt["auto_execution_armed"])
+        self.assertEqual(receipt["auto_executions_remaining"], 0)
+        self.assertEqual(self.execute()["code"], "AUTO_EXECUTION_DISARMED")
+
+    def test_multi_attempt_flag_requires_positive_budget_and_separate_mode(self):
+        args = parse_args(["--allow-auto-executions", "5"])
+        validate_config(args)
+        self.assertEqual(args.allow_auto_executions, 5)
+        for arguments in (["--allow-auto-executions", "0"],
+                          ["--allow-auto-executions", "-1"],
+                          ["--allow-auto-executions", "5", "--enable-local-execution"]):
+            with self.subTest(arguments=arguments), self.assertRaises(ValueError):
+                validate_config(parse_args(arguments))
         server = PlanServer(("127.0.0.1", 0), core=self.core, allowed_clients={"127.0.0.1"},
                             audit_log=Path(self.directory.name) / "plan-only.jsonl")
         try:

@@ -81,9 +81,32 @@ pre-execution and planning checks remain enforced. Report-only mode still
 disarms after one attempt; it does not enable a loop or gripper commands.
 Stop and restart without the option to restore normal enforcement.
 
+## Allow several separate requests
+
+To avoid restarting between successful steps, choose a finite budget at startup:
+
+```bash
+python3 scripts/fr3_cosmos_action_server.py --allow-auto-executions 5 \
+  --verification-mode report-only
+```
+
+Use this instead of `--allow-one-auto-execution`; the flags are mutually
+exclusive. Each Windows `execute-once` command still captures fresh inputs,
+infers, and requests just one movement. Up to five execution attempts are
+available for this server lifetime. Successful execution or a report-only
+warning permits the next request after its receipt is saved. The receipt and
+`/healthz` expose `auto_executions_remaining`.
+
+The budget is consumed before execution. Controller/verification faults,
+unknown outcomes, execution guard failures or receipt audit failures discard
+the remaining budget and disarm the server. Planning/bounds rejections before
+an attempt do not consume the budget. No automatic retry, task loop, gripper
+control or network rearm is introduced. Omitting both startup flags still
+keeps execution disabled.
+
 ## One attempt, then disarm
 
-The server consumes its automatic permission before requesting execution.
+With `--allow-one-auto-execution`, the server consumes its automatic permission before requesting execution.
 Success, failed verification, stale-state rejection at execution, or a lost
 execution outcome cannot rearm it. A second request returns
 `AUTO_EXECUTION_DISARMED`; simultaneous requests cannot produce two movements.

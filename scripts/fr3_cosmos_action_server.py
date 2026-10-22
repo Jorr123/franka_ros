@@ -24,8 +24,11 @@ def parse_args(argv=None):
     parser.add_argument("--port", type=int, default=8084)
     parser.add_argument("--allowed-client", action="append")
     parser.add_argument("--enable-local-execution", action="store_true")
-    parser.add_argument("--allow-one-auto-execution", action="store_true",
+    automatic = parser.add_mutually_exclusive_group()
+    automatic.add_argument("--allow-one-auto-execution", action="store_true",
                         help="Allow execute-once to plan/execute/verify one arm step, then disarm")
+    automatic.add_argument("--allow-auto-executions", type=int, metavar="N",
+                           help="Allow at most N sequential execution attempts; a fault disarms the receiver")
     parser.add_argument("--verification-mode", choices=("enforce", "report-only"), default="enforce",
                         help="Report-only records accuracy failures; velocity, drift and large errors still stop")
     parser.add_argument("--approval-socket", type=Path, default=Path("/tmp/fr3_cosmos_approval.sock"))
@@ -46,7 +49,9 @@ def parse_args(argv=None):
 
 
 def validate_config(args):
-    if args.enable_local_execution and args.allow_one_auto_execution:
+    if args.allow_auto_executions is not None and args.allow_auto_executions <= 0:
+        raise ValueError("--allow-auto-executions must be a positive integer")
+    if args.enable_local_execution and (args.allow_one_auto_execution or args.allow_auto_executions is not None):
         raise ValueError("Choose local approval or one automatic execution, not both modes together")
     args.allowed_client = args.allowed_client or ["10.10.10.2"]
     allowed = validate_args(args)
@@ -69,7 +74,8 @@ def main():
     args = parse_args()
     allowed, limits = validate_config(args)
     local_approval_enabled = args.enable_local_execution
-    args.enable_local_execution = local_approval_enabled or args.allow_one_auto_execution
+    automatic_attempts = args.allow_auto_executions or (1 if args.allow_one_auto_execution else 0)
+    args.enable_local_execution = local_approval_enabled or automatic_attempts > 0
     # Match the robot/state launchers, while respecting an explicitly set domain.
     os.environ.setdefault("ROS_DOMAIN_ID", "99")
     planner = monitor = http = approval = approval_thread = None
@@ -83,9 +89,10 @@ def main():
         monitor = LiveStateMonitor(joint_topic=args.state_topic, gripper_topic=args.gripper_state_topic)
         core = CosmosSupervisor(planner, snapshot=snapshot, limits=limits,
                                 execution_enabled=args.enable_local_execution, plan_ttl_seconds=args.plan_ttl)
-        if args.allow_one_auto_execution:
+        if automatic_attempts:
             http = ExecuteOnceServer((args.bind_host, args.port), core=core, allowed_clients=allowed,
-                                     audit_log=args.log_file, local_approval_enabled=local_approval_enabled)
+                                     audit_log=args.log_file, local_approval_enabled=local_approval_enabled,
+                                     max_auto_executions=automatic_attempts)
         else:
             http = PlanServer((args.bind_host, args.port), core=core, allowed_clients=allowed, audit_log=args.log_file)
         if local_approval_enabled:
@@ -94,7 +101,7 @@ def main():
             approval_thread.start()
         print(f"Cosmos planning: http://{args.bind_host}:{args.port}{PLAN_PATH}", flush=True)
         print(f"ROS domain: {os.environ['ROS_DOMAIN_ID']} | Local approval enabled: {local_approval_enabled}", flush=True)
-        print(f"One automatic execution armed: {args.allow_one_auto_execution}. No gripper commands are supported.", flush=True)
+        print(f"Automatic execution attempts available: {automatic_attempts}. No gripper commands are supported.", flush=True)
         print(f"Final verification mode: {args.verification_mode}", flush=True)
         if approval is not None:
             print(f"Local approval socket: {args.approval_socket} (mode 0600)", flush=True)

@@ -270,9 +270,12 @@ class PlanServer(DryRunServer):
 
 
 class ExecuteOnceServer(PlanServer):
-    """Opt-in automatic execution: one attempt per server lifetime, then disarm."""
+    """Each request executes once, within an explicitly configured attempt budget."""
 
-    def __init__(self, address, *, local_approval_enabled=False, **kwargs):
+    def __init__(self, address, *, local_approval_enabled=False, max_auto_executions=1, **kwargs):
+        if type(max_auto_executions) is not int or max_auto_executions <= 0:
+            raise ValueError("Automatic execution budget must be a positive integer")
+        self.auto_executions_remaining = max_auto_executions
         self.auto_execution_armed = True
         self.local_approval_enabled = local_approval_enabled
         self._step_lock = threading.Lock()
@@ -289,7 +292,22 @@ class ExecuteOnceServer(PlanServer):
         return {**super().health(), "mode": EXECUTE_MODE, "auto_execution_armed": self.auto_execution_armed,
                 "execution_allowed": self.auto_execution_armed, "remote_execution_available": self.auto_execution_armed,
                 "local_approval_available": self.local_approval_enabled,
+                "auto_executions_remaining": self.auto_executions_remaining,
                 "execute_once_endpoint": EXECUTE_PATH}
+
+    def discard_plan(self, proposal):
+        if isinstance(proposal, dict) and proposal.get("mode") == EXECUTE_MODE:
+            self.auto_execution_armed = False
+            self.auto_executions_remaining = 0
+        super().discard_plan(proposal)
+        return {"auto_execution_armed": self.auto_execution_armed,
+                "auto_executions_remaining": self.auto_executions_remaining}
+
+    def record(self, proposal, receipt):
+        super().record(proposal, receipt)
+        # Re-enable requests only after the completed execution receipt is saved.
+        if receipt.get("execution_attempted") and receipt.get("decision") in {"VERIFIED_SUCCESS", "EXECUTED_WITH_WARNINGS"}:
+            self.auto_execution_armed = self.auto_executions_remaining > 0
 
     def process_proposal(self, proposal, state):
         if not self._step_lock.acquire(blocking=False):
@@ -301,30 +319,39 @@ class ExecuteOnceServer(PlanServer):
                     receipt["plan"]["local_approval_available"] = self.local_approval_enabled
                 return status, receipt
             if not self.auto_execution_armed:
-                raise ProposalError("AUTO_EXECUTION_DISARMED", "One execution attempt was consumed; restart with the startup flag to rearm")
+                raise ProposalError("AUTO_EXECUTION_DISARMED", "Execution budget exhausted or receiver disarmed after a fault; restart with a startup flag to rearm")
             status, receipt = self.core.prepare_proposal(proposal, mode=EXECUTE_MODE)
             if status != 200:
                 return status, receipt
             # Consume permission before recording/sending an execution request.
             # A guard failure, timeout or verification fault cannot rearm it.
             self.auto_execution_armed = False
+            self.auto_executions_remaining -= 1
             receipt["plan"]["local_approval_available"] = False
-            self.record(proposal, {"event": "AUTO_EXECUTION_PLAN_READY", **receipt})
+            try:
+                self.record(proposal, {"event": "AUTO_EXECUTION_PLAN_READY", **receipt})
+            except (OSError, ValueError):
+                self.auto_executions_remaining = 0
+                raise
             try:
                 result_status, result = self.core.handle_local({
                     "operation": "execute", "request_id": proposal["request_id"],
                     "action_sha256": receipt["plan"]["action_sha256"],
                 })
             except RequestFailure as error:
+                self.auto_executions_remaining = 0
                 return error.status, {**receipt, "decision": "REJECTED", "code": error.code,
                                       "reason": str(error), "auto_execution_armed": False}
             except Exception as error:
+                self.auto_executions_remaining = 0
                 return 503, {**receipt, "decision": "EXECUTION_FAILED", "code": "EXECUTION_OUTCOME_UNKNOWN",
                              "reason": f"Execution outcome unknown ({type(error).__name__}); do not retry automatically",
                              "execution_attempted": True, "robot_execution": None, "auto_execution_armed": False}
             success = result.get("status") == "VERIFIED_SUCCESS"
             warning = result.get("status") == "EXECUTED_WITH_WARNINGS"
             completed = success or warning
+            if not completed or result.get("audit_error"):
+                self.auto_executions_remaining = 0
             reason = ("One movement executed and measured verification passed" if success
                       else "Controller execution completed; final accuracy verification failed (report-only)" if warning
                       else "Execution failed or could not be verified; do not retry automatically")
@@ -333,7 +360,9 @@ class ExecuteOnceServer(PlanServer):
                 "code": result.get("code", result.get("status", "EXECUTION_FAILED")),
                 "reason": reason,
                 "execution": result, "execution_attempted": True,
-                "robot_execution": True if completed else None, "auto_execution_armed": False,
+                "robot_execution": True if completed else None,
+                "auto_execution_armed": completed and self.auto_executions_remaining > 0,
+                "auto_executions_remaining": self.auto_executions_remaining,
             }
         finally:
             self._step_lock.release()
