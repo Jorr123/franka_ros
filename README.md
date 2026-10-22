@@ -60,6 +60,7 @@ This launcher also sources ROS and sets domain `42`. See the
 | `src/` | Modified Franka ROS 2 packages, custom controllers, launch files, MoveIt configurations, and upstream notices. |
 | `scripts/` | Ubuntu motion helpers, keyboard tools, supervisors, diagnostics, and source export helper. |
 | `windows_vlm_bridge/` | Qwen server example, action protocol, Windows session clients, and sample actions. |
+| `robot_bridge/` | Model-independent, IP-restricted validation-only proposals and receipts; no execution backend. |
 | `config/` | Fast DDS network profile for the original Ubuntu host. |
 | `tests/` | Python unit tests and configuration checks. |
 | `docs/` | Setup instructions, technical operation guides, and historical handoffs. |
@@ -94,6 +95,7 @@ not establish that a new setup is ready to control physical hardware.
 | Topic | Guide |
 | --- | --- |
 | Read-only FR3 state for Windows | [Robot state endpoint](docs/read_only_robot_state.md) |
+| Cosmos proposals without execution | [Validation-only delivery](docs/cosmos_dry_run_proposals.md) |
 | Custom Isaac joint stream controller | [Controller explanation](docs/isaac_joint_stream_controller_explained.md) |
 | Windows plan-only bridge | [Plan-only integration](docs/windows_isaac_plan_bridge.md) |
 | Bounded joint action sessions | [Multi-joint session contract](docs/bounded_multi_joint_session.md) |

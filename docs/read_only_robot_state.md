@@ -136,9 +136,11 @@ The default interval is half a second. Change it with `--interval-seconds`;
 samples, so it should increase even while the arm remains still. A failed or
 invalid request stops the command, and Ctrl+C stops polling normally.
 
-Neither cameras nor the Cosmos policy server need to run for this test.
-`send-once` continues to be a dummy-state inference test. This transport does
-not yet feed observations into Cosmos or convert policy outputs to FR3 actions.
+Neither cameras nor the Cosmos policy server need to run for this telemetry
+test. In the separate Windows/WSL camera workspace, `infer-once` can combine
+this endpoint with three camera frames for a saved Cosmos prediction. Its
+gripper maximum opening must be explicitly configured. `send-once` continues
+to be a dummy-state smoke test. No policy-to-FR3 execution adapter is provided.
 
 ## State checks and interpretation
 
@@ -163,8 +165,11 @@ not yet feed observations into Cosmos or convert policy outputs to FR3 actions.
   Missing, stale, or ambiguous gripper state is `null`, with an explanatory
   `gripper_unavailable_reason`. Arm and gripper samples have independent ages;
   they are not guaranteed to have been measured simultaneously.
-- Raw gripper width has no validated conversion to the DROID policy's gripper
-  input yet. Displaying live telemetry is the acceptance target here.
+- The endpoint always reports raw gripper width. The separate Windows camera
+  client converts it to DROID's closed fraction using `1 - width / maximum` and
+  an operator-confirmed maximum opening. The read-only test does not physically
+  measure both travel endpoints or validate task execution. Displaying live
+  telemetry is the acceptance target of this endpoint.
 
 For a connection failure, check Ubuntu is listening on the expected address,
 both computers' interface IPs, and whether the existing firewall permits TCP
