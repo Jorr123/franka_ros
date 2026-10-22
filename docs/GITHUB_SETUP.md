@@ -13,6 +13,7 @@ the pinned root `dependencies.repos` file.
 | `config/` | Include the Fast DDS profile; its interface addresses describe the existing lab setup. |
 | `tests/` | Include the Python tests and configuration checks. |
 | `windows_vlm_bridge/` | Include bridge source, its README, requirements, and sample action JSON. |
+| `robot_bridge/` | Include the shared validation-only action proposal protocol, client, and receiver. |
 | `docs/` | Include technical operation guides and historical Windows handoffs, with the exclusions below. |
 | `README.md`, `UPSTREAM.md`, `dependencies.repos`, `.gitignore` | Include repository setup, provenance, dependency revisions, and ignore rules. |
 

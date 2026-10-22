@@ -37,6 +37,8 @@ No extra Python dependencies are required for the shared bridge.
 ## 1. Start the receiver on Ubuntu
 
 Use the same ROS domain and middleware environment as the working state server.
+The current robot and state launchers use ROS domain `42`; set it explicitly
+in this new terminal too.
 The current observed arm topic is `/franka/joint_states`. Substitute your
 checkout path if it differs from `~/franka_ros2_ws`:
 
@@ -44,6 +46,7 @@ checkout path if it differs from `~/franka_ros2_ws`:
 cd ~/franka_ros2_ws
 source /opt/ros/humble/setup.bash
 source install/setup.bash
+export ROS_DOMAIN_ID=42
 
 python3 scripts/fr3_dry_run_action_server.py \
   --bind-host 10.10.10.1 \
@@ -52,7 +55,8 @@ python3 scripts/fr3_dry_run_action_server.py \
   --gripper-state-topic /franka_gripper/joint_states
 ```
 
-No shared secret or environment variable is required. Expected startup:
+No shared secret is required for this validation-only endpoint. The ROS domain
+setting above is required to match the robot launchers. Expected startup:
 
 ```text
 VALIDATION_ONLY: http://10.10.10.1:8083/v1/action-proposals/dry-run

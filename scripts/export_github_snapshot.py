@@ -16,7 +16,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 ROOT_FILES = ("README.md", ".gitignore", "dependencies.repos", "UPSTREAM.md")
-ROOT_DIRS = ("src", "scripts", "config", "tests", "windows_vlm_bridge", "docs")
+ROOT_DIRS = ("src", "scripts", "config", "tests", "windows_vlm_bridge", "robot_bridge", "docs")
 
 
 def git_ignored(git_dir: Path, paths: list[str]) -> set[str]:
