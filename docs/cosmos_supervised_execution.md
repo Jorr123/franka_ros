@@ -68,11 +68,11 @@ the inputs, and never trigger an automatic retry.
 A proposal exceeding the current movement bounds is rejected **before calling
 MoveIt**. The adapter does not clip or scale a rejected target or silently
 select a different policy row. The operator-requested limits are now 0.1 rad
-per joint and 0.1 rad total absolute change for one step.
+per joint and 0.4 rad total absolute change for one step.
 
 ## What is checked
 
-- The configured 0.1 rad per-joint / 0.1 rad L1 total movement bounds apply to
+- The configured 0.1 rad per-joint / 0.4 rad L1 total movement bounds apply to
   the proposal, the actual planning start, and every trajectory waypoint.
 - The absolute Cosmos target is retained when MoveIt reads a newer start pose.
   Deltas are recalculated for the backend contract; the target is not rebased.

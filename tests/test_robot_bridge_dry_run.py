@@ -70,11 +70,11 @@ class ProtocolTest(unittest.TestCase):
             self.evaluate()
 
     def test_rejects_each_delta_and_total_without_clipping(self):
-        for delta in (0.101, 0.02):
+        for delta in (0.101, 0.06):
             with self.subTest(delta=delta), self.assertRaisesRegex(ProposalError, "delta"):
                 self.evaluate(proposal(self.state, delta))
 
-    def test_recorded_cosmos_step_fits_requested_point_one_rad_limits(self):
+    def test_recorded_cosmos_step_fits_current_limits(self):
         deltas = [0.0001361966, -0.0075237565, 0.0207660794, 0.0041997433,
                   -0.0166081041, 0.0001435280, -0.0028752089]
         message = make_proposal(
@@ -86,7 +86,12 @@ class ProtocolTest(unittest.TestCase):
         self.assertAlmostEqual(metrics["max_joint_delta_rad"], 0.0207660794)
         self.assertAlmostEqual(metrics["total_joint_delta_rad"], sum(abs(delta) for delta in deltas))
         self.assertEqual(Limits().max_joint_delta_rad, 0.1)
-        self.assertEqual(Limits().max_total_delta_rad, 0.1)
+        self.assertEqual(Limits().max_total_delta_rad, 0.4)
+
+    def test_absolute_sum_above_old_limit_is_accepted_below_point_four(self):
+        metrics = self.evaluate(proposal(self.state, 0.02))
+        self.assertAlmostEqual(metrics["total_joint_delta_rad"], 0.14)
+        self.assertAlmostEqual(metrics["max_joint_delta_rad"], 0.02)
 
     def test_rejects_tampered_delta_or_execution_flag(self):
         self.proposal["joint_deltas_rad"][JOINTS[0]] = 0.0
@@ -197,7 +202,7 @@ class HttpTest(unittest.TestCase):
         self.assertEqual(record["receipt"], receipt)
 
     def test_rejected_prediction_is_still_delivered_and_receipt_verified(self):
-        receipt = submit_proposal(proposal(self.state, 0.02), url=self.url)
+        receipt = submit_proposal(proposal(self.state, 0.06), url=self.url)
         self.assertEqual(receipt["decision"], "REJECTED")
         self.assertEqual(receipt["code"], "DELTA_LIMIT_EXCEEDED")
         self.assertFalse(receipt["execution_allowed"])
