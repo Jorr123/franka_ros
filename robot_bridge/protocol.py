@@ -111,8 +111,8 @@ def state_reference(state: dict) -> dict:
 
 @dataclass(frozen=True)
 class Limits:
-    max_joint_delta_rad: float = 0.01
-    max_total_delta_rad: float = 0.04
+    max_joint_delta_rad: float = 0.1
+    max_total_delta_rad: float = 0.1
     max_start_drift_rad: float = 0.005
     max_basis_drift_rad: float = 0.002
     max_gripper_drift_m: float = 0.001

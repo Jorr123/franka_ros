@@ -211,8 +211,10 @@ class CoreTest(unittest.TestCase):
         args = parse_args([])
         self.assertFalse(args.enable_local_execution)
         self.assertEqual(args.state_topic, "/franka/joint_states")
+        self.assertEqual(args.max_delta, 0.1)
+        self.assertEqual(args.max_total_delta, 0.1)
         validate_config(args)
-        for option, value in (("--max-delta", "0.02"), ("--velocity-scaling", "0.1"), ("--start-state-tolerance", "0.01")):
+        for option, value in (("--max-delta", "0.101"), ("--max-total-delta", "0.101"), ("--velocity-scaling", "0.1"), ("--start-state-tolerance", "0.01")):
             with self.subTest(option=option), self.assertRaises(ValueError):
                 validate_config(parse_args([option, value]))
 

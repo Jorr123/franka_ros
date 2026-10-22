@@ -70,9 +70,23 @@ class ProtocolTest(unittest.TestCase):
             self.evaluate()
 
     def test_rejects_each_delta_and_total_without_clipping(self):
-        for delta in (0.011, 0.008):
+        for delta in (0.101, 0.02):
             with self.subTest(delta=delta), self.assertRaisesRegex(ProposalError, "delta"):
                 self.evaluate(proposal(self.state, delta))
+
+    def test_recorded_cosmos_step_fits_requested_point_one_rad_limits(self):
+        deltas = [0.0001361966, -0.0075237565, 0.0207660794, 0.0041997433,
+                  -0.0166081041, 0.0001435280, -0.0028752089]
+        message = make_proposal(
+            source="cosmos3-edge-droid", observation_state=self.state, basis_state=self.state,
+            target_joint_positions_rad=[q + delta for q, delta in zip(self.state["joint_positions_rad"], deltas)],
+            observation_created_at_unix_ms=self.now_ms - 100, inference_completed_at_unix_ms=self.now_ms,
+        )
+        metrics = self.evaluate(message)
+        self.assertAlmostEqual(metrics["max_joint_delta_rad"], 0.0207660794)
+        self.assertAlmostEqual(metrics["total_joint_delta_rad"], sum(abs(delta) for delta in deltas))
+        self.assertEqual(Limits().max_joint_delta_rad, 0.1)
+        self.assertEqual(Limits().max_total_delta_rad, 0.1)
 
     def test_rejects_tampered_delta_or_execution_flag(self):
         self.proposal["joint_deltas_rad"][JOINTS[0]] = 0.0
