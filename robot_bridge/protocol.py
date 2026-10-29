@@ -134,6 +134,7 @@ def make_proposal(
     basis_state: dict, observation_created_at_unix_ms: int,
     inference_completed_at_unix_ms: int, action_index: int = 0, mode: str = MODE,
     action_chunk: dict | None = None,
+    gripper_command: dict | None = None,
 ) -> dict:
     observed = state_reference(observation_state)
     basis = state_reference(basis_state)
@@ -155,6 +156,8 @@ def make_proposal(
     }
     if action_chunk is not None:
         proposal["action_chunk"] = action_chunk
+    if gripper_command is not None:
+        proposal.update(gripper_mode="policy_binary", gripper_command=gripper_command)
     validate_shape(proposal, expected_mode=mode)
     return proposal
 
@@ -165,12 +168,12 @@ def validate_shape(proposal: dict, *, expected_mode: str = MODE) -> None:
         "source", "prediction", "observation_state", "basis_state",
         "target_joint_positions_rad", "joint_deltas_rad", "gripper_mode",
     }
-    if not isinstance(proposal, dict) or set(proposal) not in (keys, keys | {"action_chunk"}):
+    if not isinstance(proposal, dict) or not keys.issubset(proposal) or not set(proposal).issubset(keys | {"action_chunk", "gripper_command"}):
         raise ProposalError("INVALID_PROPOSAL", "Unexpected dry-run proposal fields")
     if type(proposal["schema_version"]) is not int or proposal["schema_version"] != 1:
         raise ProposalError("INVALID_PROPOSAL", "Unsupported dry-run schema")
-    if expected_mode not in {MODE, PLAN_MODE, EXECUTE_MODE} or proposal["mode"] != expected_mode or proposal["execution_allowed"] is not (expected_mode == EXECUTE_MODE) or proposal["gripper_mode"] != "hold":
-        raise ProposalError("EXECUTION_FORBIDDEN", "This endpoint only accepts validation-only arm proposals with gripper held")
+    if expected_mode not in {MODE, PLAN_MODE, EXECUTE_MODE} or proposal["mode"] != expected_mode or proposal["execution_allowed"] is not (expected_mode == EXECUTE_MODE) or proposal["gripper_mode"] not in {"hold", "policy_binary"}:
+        raise ProposalError("EXECUTION_FORBIDDEN", "Proposal mode, execution permission or gripper mode does not match the endpoint")
     try:
         request_id = uuid.UUID(proposal["request_id"])
         if request_id.version != 4 or str(request_id) != proposal["request_id"]:
@@ -213,6 +216,11 @@ def validate_shape(proposal: dict, *, expected_mode: str = MODE) -> None:
         delta = number(deltas[joint], joint)
         if abs(delta - (target[index] - basis["joint_positions_rad"][index])) > 1e-9:
             raise ProposalError("DELTA_MISMATCH", f"{joint} delta does not equal target minus measured basis")
+    if proposal["gripper_mode"] == "policy_binary":
+        from .gripper import validate_gripper_command
+        validate_gripper_command(proposal)
+    elif "gripper_command" in proposal:
+        raise ProposalError("INVALID_GRIPPER", "Held gripper must not contain an actuator command")
 
 
 def evaluate_proposal(proposal: dict, current_state: dict, limits: Limits, now_unix_ms: int, *, mode: str = MODE) -> dict:

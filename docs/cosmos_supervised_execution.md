@@ -1,8 +1,10 @@
 # Cosmos targets through the existing MoveIt supervisor
 
 The Cosmos adapter now connects to the existing Ubuntu MoveIt planner,
-single-use local approval, and measured-motion verifier. It handles **one first
-arm target**, not the full 32-step policy chunk. It excludes all gripper commands.
+single-use local approval, and measured-motion verifier. It defaults to **one
+first arm target**, with configurable consecutive action chunks also available.
+Gripper commands are excluded by default; see the
+[opt-in gripper guide](cosmos_policy_gripper.md).
 
 | Interface | Purpose |
 | --- | --- |

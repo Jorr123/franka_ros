@@ -9,7 +9,7 @@ from .protocol import JOINTS, canonical_json, digest, number
 from fr3_ai_supervisor import ExecutionContext, PlanInputRejected, PreparedPlan
 
 
-def check_collisions(planner, positions, proposal):
+def check_collisions(planner, positions, proposal, *, gripper_widths=None, deadline_override=None):
     from moveit_msgs.srv import GetStateValidity
 
     client = getattr(planner, "chunk_validity_client", None)
@@ -18,6 +18,8 @@ def check_collisions(planner, positions, proposal):
         planner.chunk_validity_client = client
     deadline = min(time.time() + planner.args.result_timeout,
                    proposal["prediction"]["observation_created_at_unix_ms"] / 1000 + planner.limits.max_observation_age_seconds)
+    if deadline_override is not None:
+        deadline = min(time.time() + planner.args.result_timeout, deadline_override)
     if not client.wait_for_service(timeout_sec=min(planner.args.server_timeout, max(0.0, deadline - time.time()))):
         raise PlanInputRejected("MoveIt /check_state_validity service unavailable")
     for index, q in enumerate(positions):
@@ -25,10 +27,13 @@ def check_collisions(planner, positions, proposal):
         if remaining <= 0:
             raise PlanInputRejected("Chunk collision validation exceeded the original observation deadline")
         request = GetStateValidity.Request()
-        request.group_name = planner.args.group
+        request.group_name = planner.args.group if gripper_widths is None else ""
         request.robot_state.is_diff = True
         request.robot_state.joint_state.name = list(JOINTS)
         request.robot_state.joint_state.position = list(q)
+        if gripper_widths is not None:
+            request.robot_state.joint_state.name += ["fr3_finger_joint1", "fr3_finger_joint2"]
+            request.robot_state.joint_state.position += [gripper_widths[index] / 2] * 2
         future = client.call_async(request)
         planner.rclpy.spin_until_future_complete(planner.node, future, timeout_sec=min(remaining, planner.args.server_timeout))
         if not future.done():

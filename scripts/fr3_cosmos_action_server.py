@@ -16,6 +16,7 @@ from fr3_ai_supervisor import add_motion_arguments, create_approval_server, vali
 from robot_bridge.planning import CosmosMoveItPlanner, CosmosSupervisor, PlanServer, ExecuteOnceServer
 from robot_bridge.protocol import Limits, PLAN_PATH
 from robot_bridge.ros_state import LiveStateMonitor
+from robot_bridge.gripper import GripperSettings
 
 
 def parse_args(argv=None):
@@ -36,6 +37,10 @@ def parse_args(argv=None):
     parser.add_argument("--start-state-tolerance", type=float, default=0.002)
     parser.add_argument("--max-start-velocity", type=float, default=0.01)
     parser.add_argument("--gripper-state-topic", default="/franka_gripper/joint_states")
+    parser.add_argument("--enable-gripper", action="store_true", help="Opt in to policy open/grasp events after arm motion")
+    parser.add_argument("--gripper-grasp-width", type=float, help="Tested object-contact width in metres; required with --enable-gripper")
+    parser.add_argument("--gripper-force", type=float, help="Tested grasp force in N; required with --enable-gripper")
+    parser.add_argument("--gripper-speed", type=float, default=0.02)
     parser.add_argument("--log-file", type=Path, default=Path("log/cosmos_action_plans.jsonl"))
     add_motion_arguments(parser)
     parser.set_defaults(
@@ -50,6 +55,10 @@ def parse_args(argv=None):
 
 
 def validate_config(args):
+    if args.enable_gripper:
+        if args.gripper_grasp_width is None or args.gripper_force is None:
+            raise ValueError("--enable-gripper requires explicit --gripper-grasp-width and --gripper-force")
+        GripperSettings(args.gripper_grasp_width, args.gripper_force, args.gripper_speed)
     if args.allow_auto_executions is not None and args.allow_auto_executions <= 0:
         raise ValueError("--allow-auto-executions must be a positive integer")
     if args.enable_local_execution and (args.allow_one_auto_execution or args.allow_auto_executions is not None):
@@ -102,8 +111,9 @@ def main():
             approval_thread.start()
         print(f"Cosmos planning: http://{args.bind_host}:{args.port}{PLAN_PATH}", flush=True)
         print(f"ROS domain: {os.environ['ROS_DOMAIN_ID']} | Local approval enabled: {local_approval_enabled}", flush=True)
-        print(f"Automatic execution attempts available: {automatic_attempts}. No gripper commands are supported.", flush=True)
+        print(f"Automatic execution attempts available: {automatic_attempts}.", flush=True)
         print(f"Final verification mode: {args.verification_mode}", flush=True)
+        print(f"Policy gripper enabled: {args.enable_gripper}", flush=True)
         if approval is not None:
             print(f"Local approval socket: {args.approval_socket} (mode 0600)", flush=True)
         http.serve_forever(poll_interval=0.2)

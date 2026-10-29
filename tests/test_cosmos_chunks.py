@@ -72,7 +72,7 @@ class ChunkTest(unittest.TestCase):
         with self.assertRaises(ProposalError):
             validate_shape(original, expected_mode=PLAN_MODE)
 
-    def prepare(self, *, collision=False, middle_delta=0.001, recheck=False):
+    def prepare(self, *, collision=False, middle_delta=0.001, recheck=False, fingers=False):
         message, core = self.proposal()
         message["action_chunk"]["joint_positions_rad"][0][0] = message["basis_state"]["joint_positions_rad"][0] + middle_delta
         current = dict(zip(JOINTS, message["basis_state"]["joint_positions_rad"]))
@@ -127,6 +127,9 @@ class ChunkTest(unittest.TestCase):
             prepared = prepare_chunk(planner, envelope)
             if recheck:
                 planner.before_execute(prepared.execution_context)
+            if fingers:
+                from robot_bridge.chunk_planning import check_collisions
+                check_collisions(planner, [list(current.values())] * 2, message, gripper_widths=[0.0798, 0.035])
         return prepared, validity
 
     def test_adapter_checks_dense_path_and_freezes_one_trajectory(self):
@@ -146,6 +149,13 @@ class ChunkTest(unittest.TestCase):
     def test_collision_samples_are_rechecked_before_execution(self):
         prepared, validity = self.prepare(recheck=True)
         self.assertEqual(validity.call_async.call_count, 2 * len(prepared.execution_context.trajectory.joint_trajectory.points))
+
+    def test_gripper_sweep_checks_both_fingers_and_whole_robot(self):
+        _, validity = self.prepare(fingers=True)
+        request = validity.call_async.call_args.args[0]
+        self.assertEqual(request.group_name, "")
+        self.assertEqual(request.robot_state.joint_state.name[-2:], ["fr3_finger_joint1", "fr3_finger_joint2"])
+        self.assertEqual(request.robot_state.joint_state.position[-2:], [0.0175, 0.0175])
 
 
 if __name__ == "__main__":
