@@ -31,6 +31,8 @@ def parse_args(argv=None):
                            help="Allow at most N sequential execution attempts; a fault disarms the receiver")
     parser.add_argument("--verification-mode", choices=("enforce", "report-only"), default="enforce",
                         help="Report-only records accuracy failures; velocity, drift and large errors still stop")
+    parser.add_argument("--chunk-timing", choices=("uniform", "adaptive"), default="uniform",
+                        help="Adaptive gives chunk segments separate durations within the same motion limits")
     parser.add_argument("--approval-socket", type=Path, default=Path("/tmp/fr3_cosmos_approval.sock"))
     parser.add_argument("--plan-ttl", type=float, default=30.0)
     parser.add_argument("--start-state-tolerance", type=float, default=0.002)
@@ -104,6 +106,7 @@ def main():
         print(f"ROS domain: {os.environ['ROS_DOMAIN_ID']} | Local approval enabled: {local_approval_enabled}", flush=True)
         print(f"Automatic execution attempts available: {automatic_attempts}. No gripper commands are supported.", flush=True)
         print(f"Final verification mode: {args.verification_mode}", flush=True)
+        print(f"Chunk timing: {args.chunk_timing}", flush=True)
         if approval is not None:
             print(f"Local approval socket: {args.approval_socket} (mode 0600)", flush=True)
         http.serve_forever(poll_interval=0.2)

@@ -149,6 +149,63 @@ types and responses; hardware execution of this adapter still needs testing.
 Use `plan-once --actions-per-chunk 4 ...` to review the same path without
 movement. K=1 retains the existing single-target planning behavior.
 
+## Optional adaptive chunk timing
+
+The default `--chunk-timing uniform` applies one conservative time stretch to
+every action segment. A single demanding segment therefore slows the entire
+chunk. To review an alternative without arming execution, start the receiver:
+
+```bash
+export ROS_DOMAIN_ID=99
+python3 scripts/fr3_cosmos_action_server.py --chunk-timing adaptive
+```
+
+Use Windows `plan-once --actions-per-chunk K` to inspect the resulting plan.
+Adaptive timing chooses a separate duration for each segment and uses tighter
+continuous derivative bounds from subdivided Bezier control hulls. It retains
+every absolute target and C2 continuity, with zero endpoint velocity and
+acceleration. It preserves monotonic joint movement between adjacent targets;
+reversals have zero turning velocity. Changes in segment durations can change
+the joint path between targets, so dense bounds/collision checks still run at
+planning and immediately before execution. No jerk limit is introduced.
+
+Velocity and acceleration limits/scaling, movement bounds, execution budgets,
+state checks, verification and timeout/sample limits are unchanged. K=1 uses
+the existing single-target MoveIt planner and is unaffected by this option.
+This timing mode is opt-in and has only been tested offline.
+
+Receipts include `chunk.timing_mode`, `segment_durations_seconds`, and
+`segment_time_scales`. For adaptive timing, `time_scale` and
+`effective_action_period_seconds` are averages; individual segment durations
+can differ. Nominal policy timing is no longer preserved between segments.
+
+For the archived 29 October six-action example, with effective joint limits
+0.04 rad/s and 0.10 rad/s², offline durations were:
+
+| Selected actions | Uniform | Adaptive |
+| --- | ---: | ---: |
+| 2 | 8.345 s | 2.427 s |
+| 4 | 19.903 s | 5.887 s |
+| 6 | 34.507 s | 13.411 s |
+
+The base planning velocity limit was subsequently raised to 0.50 rad/s for
+all seven joints. With Cosmos scaling still 0.2, the current effective velocity
+limit is 0.10 rad/s; effective acceleration remains 0.10 rad/s². Recomputing
+that same archived example at the current limits gives:
+
+| Selected actions | Uniform | Adaptive |
+| --- | ---: | ---: |
+| 2 | 5.167 s | 2.256 s |
+| 4 | 11.286 s | 5.097 s |
+| 6 | 18.201 s | 9.401 s |
+
+These are computed trajectory durations, excluding inference, scene validation,
+controller settling and verification. They are not measured physical timings.
+At the earlier 0.04 rad/s cap, the six-action path alone needs at least about
+6.98 s at constant maximum joint speed, before acceleration effects. At the
+current 0.10 rad/s cap that lower bound is about 2.79 s, so nominal 0.4 s remains
+infeasible. Faster timing does not establish accurate reaching or controller tracking.
+
 ## One attempt, then disarm
 
 With `--allow-one-auto-execution`, the server consumes its automatic permission before requesting execution.

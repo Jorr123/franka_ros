@@ -65,7 +65,8 @@ def prepare_chunk(planner, envelope):
             velocity.append(number(limits["max_velocity"], "max_velocity") * planner.args.velocity_scaling)
             acceleration.append(number(limits["max_acceleration"], "max_acceleration") * planner.args.acceleration_scaling)
         samples, metadata = timed_chunk([current[j] for j in JOINTS], chunk["joint_positions_rad"],
-                                        chunk["action_period_seconds"], velocity, acceleration)
+                                        chunk["action_period_seconds"], velocity, acceleration,
+                                        timing_mode=getattr(planner.args, "chunk_timing", "uniform"))
         if samples[-1][0] + planner.args.settle_time >= planner.args.result_timeout:
             raise ValueError("Chunk duration exceeds execution timeout; request fewer actions")
         trajectory = RobotTrajectory()

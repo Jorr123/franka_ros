@@ -72,13 +72,13 @@ class ChunkTest(unittest.TestCase):
         with self.assertRaises(ProposalError):
             validate_shape(original, expected_mode=PLAN_MODE)
 
-    def prepare(self, *, collision=False, middle_delta=0.001, recheck=False):
+    def prepare(self, *, collision=False, middle_delta=0.001, recheck=False, timing="uniform"):
         message, core = self.proposal()
         message["action_chunk"]["joint_positions_rad"][0][0] = message["basis_state"]["joint_positions_rad"][0] + middle_delta
         current = dict(zip(JOINTS, message["basis_state"]["joint_positions_rad"]))
         target = dict(zip(JOINTS, message["target_joint_positions_rad"]))
         planner = object.__new__(fixtures.CosmosMoveItPlanner)
-        planner.args = parse_args([])
+        planner.args = parse_args(["--chunk-timing", timing])
         planner.args.enable_local_execution = True
         planner.limits = Limits()
         planner.snapshot = core.snapshot
@@ -146,6 +146,86 @@ class ChunkTest(unittest.TestCase):
     def test_collision_samples_are_rechecked_before_execution(self):
         prepared, validity = self.prepare(recheck=True)
         self.assertEqual(validity.call_async.call_count, 2 * len(prepared.execution_context.trajectory.joint_trajectory.points))
+
+    def test_adaptive_adapter_retains_collision_checks_and_opt_in(self):
+        self.assertEqual(parse_args([]).chunk_timing, "uniform")
+        prepared, validity = self.prepare(timing="adaptive", recheck=True)
+        self.assertEqual(prepared.response["chunk"]["timing_mode"], "adaptive")
+        points = prepared.execution_context.trajectory.joint_trajectory.points
+        self.assertEqual(validity.call_async.call_count, 2 * len(points))
+
+
+class AdaptiveTimingTest(unittest.TestCase):
+    def check_continuous_limits(self, start, targets, velocity, acceleration):
+        """Independently reconstruct each full segment and check its extrema."""
+        import numpy as np
+        from numpy.polynomial import Polynomial
+
+        samples, meta = timed_chunk(start, targets, 1 / 15, velocity, acceleration,
+                                    timing_mode="adaptive")
+        indices = [0] + meta["waypoint_sample_indices"]
+        expected = [start] + targets
+        self.assertEqual(meta["timing_mode"], "adaptive")
+        self.assertEqual(len(meta["segment_durations_seconds"]), len(targets))
+        self.assertAlmostEqual(sum(meta["segment_durations_seconds"]), samples[-1][0])
+        for idx, target in zip(indices, expected):
+            np.testing.assert_allclose(samples[idx][1], target, atol=1e-12, rtol=0)
+            np.testing.assert_allclose(samples[idx][3], 0, atol=1e-10, rtol=0)
+        for idx in [0, len(samples) - 1]:
+            np.testing.assert_allclose(samples[idx][2], 0, atol=1e-12, rtol=0)
+        for previous, current in zip(samples, samples[1:]):
+            self.assertGreater(current[0], previous[0])
+            self.assertLessEqual(current[0] - previous[0], 0.05 + 1e-12)
+            self.assertLessEqual(max(abs(b - a) for a, b in zip(previous[1], current[1])), 0.001 + 1e-12)
+        # Quintic coefficients from boundary position, velocity, acceleration;
+        # roots of the derivative locate extrema between sampled points.
+        matrix = np.array([[1, 1, 1], [3, 4, 5], [6, 12, 20]], dtype=float)
+        for left, right in zip(indices, indices[1:]):
+            s, e = samples[left], samples[right]
+            h = e[0] - s[0]
+            for j in range(7):
+                c = [s[1][j], h * s[2][j], h * h * s[3][j] / 2]
+                tail = np.linalg.solve(matrix, [e[1][j] - sum(c), h * e[2][j] - c[1] - 2*c[2], h*h*e[3][j] - 2*c[2]])
+                poly = Polynomial(c + tail.tolist())
+                for order, limit in [(0, None), (1, velocity[j]), (2, acceleration[j])]:
+                    derivative = poly.deriv(order)
+                    roots = derivative.deriv().roots()
+                    times = [0., 1.] + [float(z.real) for z in roots if abs(z.imag) < 1e-8 and 0 < z.real < 1]
+                    values = derivative(np.array(times)) / h**order
+                    if order == 0:
+                        self.assertGreaterEqual(min(values), min(s[1][j], e[1][j]) - 1e-10)
+                        self.assertLessEqual(max(values), max(s[1][j], e[1][j]) + 1e-10)
+                    else:
+                        self.assertLessEqual(max(abs(values)), limit * (1 + 1e-8))
+        return samples, meta
+
+    def test_preserves_flow_without_stretching_every_segment_for_the_worst(self):
+        targets = [[x] * 7 for x in [0.001, 0.002, 0.003, 0.03]]
+        samples, meta = self.check_continuous_limits([0.] * 7, targets, [0.04]*7, [0.1]*7)
+        self.assertGreater(samples[meta["waypoint_sample_indices"][0]][2][0], 0)
+        self.assertGreater(meta["segment_durations_seconds"][-1], meta["segment_durations_seconds"][0])
+        old, _ = timed_chunk([0.] * 7, targets, 1/15, [0.04]*7, [0.1]*7)
+        self.assertLess(samples[-1][0], old[-1][0] * 0.6)
+
+    def test_reversals_pauses_and_different_joint_limits(self):
+        targets = [[x, -x, 0, x/2, 0, 0, 0] for x in [0.01, 0.01, -0.015, 0.002]]
+        self.check_continuous_limits([0.]*7, targets, [0.03, 0.04, 0.02, 0.06, 0.02, 0.03, 0.04], [0.1]*7)
+
+    def test_varied_paths_satisfy_unsampled_polynomial_extrema(self):
+        import random
+        rng = random.Random(19)
+        for _ in range(12):
+            start = [rng.uniform(-1, 1) for _ in range(7)]
+            targets = [[x + rng.uniform(-0.02, 0.02) for x in start] for _ in range(6)]
+            v = [rng.uniform(0.02, 0.06) for _ in range(7)]
+            a = [rng.uniform(0.04, 0.15) for _ in range(7)]
+            self.check_continuous_limits(start, targets, v, a)
+
+    def test_invalid_mode_and_oversized_paths_fail(self):
+        with self.assertRaisesRegex(ValueError, "timing mode"):
+            timed_chunk([0.]*7, [[0.01]*7]*2, 1/15, [.04]*7, [.1]*7, timing_mode="unknown")
+        with self.assertRaisesRegex(ValueError, "2048"):
+            timed_chunk([0.]*7, [[(-1)**i * .29]*7 for i in range(32)], 1/15, [.04]*7, [.1]*7, timing_mode="adaptive")
 
 
 if __name__ == "__main__":
