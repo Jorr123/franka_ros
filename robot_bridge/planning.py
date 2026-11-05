@@ -24,7 +24,7 @@ from fr3_ai_supervisor import (
 )
 from .protocol import (
     JOINTS, PLAN_MODE, PLAN_PATH, EXECUTE_MODE, EXECUTE_PATH, Limits, ProposalError, canonical_json,
-    evaluate_proposal, joint_vector, number,
+    evaluate_proposal, joint_vector, number, digest,
 )
 from .server import DryRunHandler, DryRunServer
 
@@ -104,12 +104,30 @@ class CosmosMoveItPlanner(RosMoveItPlanner):
         self.snapshot = snapshot
         self.limits = limits
         super().__init__(args, action_validator=validate_joint_delta_action_contract)
+        self.gripper = None
+        if getattr(args, "enable_gripper", False):
+            from .gripper import FrankaPolicyGripper, GripperSettings
+            settings = GripperSettings(args.gripper_grasp_width, args.gripper_force, args.gripper_speed)
+            self.gripper = FrankaPolicyGripper(self.node, settings, state_topic=args.gripper_state_topic)
 
     def plan(self, envelope):
         if "action_chunk" in envelope["cosmos_proposal"]:
             from .chunk_planning import prepare_chunk
-            return prepare_chunk(self, envelope)
-        prepared = super().plan(envelope)
+            prepared = prepare_chunk(self, envelope)
+        else:
+            prepared = super().plan(envelope)
+        command = envelope["cosmos_proposal"].get("gripper_command")
+        if command and prepared.http_status == 200:
+            if self.gripper is None:
+                raise PlanInputRejected("Policy gripper is disabled on Ubuntu")
+            from .gripper_integration import check_gripper_path
+            gripper_plan = self.gripper.config.plan(command["operation"])
+            if command["operation"] != "hold":
+                check_gripper_path(self, envelope["cosmos_proposal"], prepared.response["target_joint_positions"])
+            prepared.response["gripper"] = gripper_plan
+            prepared.response["action_sha256"] = digest(canonical_json({
+                "arm_sha256": prepared.response["action_sha256"], "gripper_command": command,
+                "gripper_plan": gripper_plan}))
         if prepared.execution_context is not None:
             prepared.execution_context.metadata = {"cosmos_proposal": deepcopy(envelope["cosmos_proposal"])}
         return prepared
@@ -133,6 +151,8 @@ class CosmosMoveItPlanner(RosMoveItPlanner):
 
     def before_execute(self, context):
         proposal = (context.metadata or {}).get("cosmos_proposal", {})
+        if proposal.get("gripper_command", {}).get("operation", "hold") != "hold":
+            self.gripper.preflight()
         if "action_chunk" in proposal:
             from .chunk_planning import check_collisions
             check_collisions(self, [list(p.positions) for p in context.trajectory.joint_trajectory.points], proposal)
@@ -166,6 +186,11 @@ class CosmosSupervisor(SupervisorCore):
 
     def prepare_proposal(self, proposal, *, mode=PLAN_MODE):
         selected = deepcopy(proposal)
+        if selected.get("gripper_mode") == "policy_binary" and getattr(self.planner, "gripper", None) is None:
+            raise ProposalError("GRIPPER_DISABLED", "Restart Ubuntu with --enable-gripper and explicit grasp settings")
+        if selected.get("gripper_command", {}).get("grasp_confirmed") is True:
+            if not self.planner.gripper.grasp_confirmed_at(selected["basis_state"]["gripper_width_m"]):
+                raise ProposalError("GRASP_STATE_CHANGED", "Ubuntu has no matching verified grasp; obtain fresh state/status")
         validation = check_live_state(selected, self.snapshot, self.limits, mode=mode)
         state_status, state = self.snapshot()
         if state_status != 200:
@@ -213,6 +238,9 @@ class CosmosSupervisor(SupervisorCore):
             raise ExecutionRejected(getattr(error, "code", "APPROVAL_GUARD_FAILED"), str(error)) from error
         try:
             result = self.planner.execute(context)
+            if proposal.get("gripper_mode") == "policy_binary":
+                from .gripper_integration import execute_gripper
+                result = execute_gripper(self.planner, context, proposal, result)
         except ExecutionRejected as error:
             try:
                 self.audit({"event": "LOCAL_EXECUTION_RESULT", "request_id": request_id,
@@ -258,8 +286,11 @@ class PlanServer(DryRunServer):
         core.audit = self.record_event
 
     def health(self):
+        gripper = getattr(self.core.planner, "gripper", None)
         return {**super().health(), "local_approval_available": self.core.execution_enabled,
-                "remote_execution_available": False}
+                "remote_execution_available": False,
+                "policy_gripper_enabled": gripper is not None,
+                "gripper_confirmed_width_m": gripper.confirmed_width_m if gripper is not None else None}
 
     def record_event(self, event):
         self.record(None, {"created_at_unix_ms": int(time.time() * 1000), **event})

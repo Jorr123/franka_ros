@@ -3,7 +3,8 @@
 This opt-in mode removes plan-ID copying and typed approval. One Windows
 `execute-once` command runs a fresh inference, submits the first arm target,
 plans through MoveIt, executes one bounded trajectory, and waits for measured
-verification. It can move the real arm. Gripper commands remain excluded.
+verification. It can move the real arm. Gripper commands are excluded by default;
+see the [opt-in gripper guide](cosmos_policy_gripper.md) to include them.
 
 The default server still only plans. `plan-once` never executes, even on an
 automatically armed server. Automatic execution has a separate request mode,
@@ -139,7 +140,8 @@ Sampling bounds are 0.001 rad per joint and 0.05 seconds, with at most 2048
 samples. Checks depend on the current planning scene; the adapter rejects
 blocked paths rather than using OMPL to change intermediate targets. Missing
 services, stale observations, invalid limits, oversized paths and trajectories
-exceeding the execution timeout are rejected. Gripper commands remain held.
+exceeding the execution timeout are rejected. Gripper commands remain held
+unless both computers explicitly enable the policy gripper adapter.
 Final measured verification is at the end of the trajectory. New observations
 are acquired between chunks, with no mid-motion replacement.
 

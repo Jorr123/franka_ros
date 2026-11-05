@@ -111,7 +111,7 @@ class ProtocolTest(unittest.TestCase):
         for field, value in (("mode", "EXECUTE"), ("execution_allowed", True), ("gripper_mode", "close")):
             changed = proposal(self.state)
             changed[field] = value
-            with self.subTest(field=field), self.assertRaisesRegex(ProposalError, "validation-only"):
+            with self.subTest(field=field), self.assertRaisesRegex(ProposalError, "does not match the endpoint"):
                 self.evaluate(changed)
 
     def test_rejects_state_drift_gripper_motion_or_source_change(self):
