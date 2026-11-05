@@ -50,8 +50,8 @@ class ProtocolTest(unittest.TestCase):
         self.proposal = proposal(self.state)
         self.now_ms = int(time.time() * 1000)
 
-    def evaluate(self, message=None, measured=None):
-        return evaluate_proposal(message or self.proposal, measured or self.state, Limits(), self.now_ms)
+    def evaluate(self, message=None, measured=None, limits=None):
+        return evaluate_proposal(message or self.proposal, measured or self.state, limits or Limits(), self.now_ms)
 
     def test_absolute_target_is_converted_from_fresh_measured_basis(self):
         for joint in JOINTS:
@@ -70,9 +70,9 @@ class ProtocolTest(unittest.TestCase):
             self.evaluate()
 
     def test_rejects_each_delta_and_total_without_clipping(self):
-        for delta in (0.301, 0.22):
+        for delta, limits in ((0.701, Limits()), (0.6, Limits(max_total_delta_rad=3.0))):
             with self.subTest(delta=delta), self.assertRaisesRegex(ProposalError, "delta"):
-                self.evaluate(proposal(self.state, delta))
+                self.evaluate(proposal(self.state, delta), limits=limits)
 
     def test_recorded_cosmos_step_fits_current_limits(self):
         deltas = [0.0001361966, -0.0075237565, 0.0207660794, 0.0041997433,
@@ -85,33 +85,34 @@ class ProtocolTest(unittest.TestCase):
         metrics = self.evaluate(message)
         self.assertAlmostEqual(metrics["max_joint_delta_rad"], 0.0207660794)
         self.assertAlmostEqual(metrics["total_joint_delta_rad"], sum(abs(delta) for delta in deltas))
-        self.assertEqual(Limits().max_joint_delta_rad, 0.3)
-        self.assertEqual(Limits().max_total_delta_rad, 1.5)
+        self.assertEqual(Limits().max_joint_delta_rad, 0.7)
+        self.assertEqual(Limits().max_total_delta_rad, 5.0)
 
-    def test_absolute_sum_above_previous_limit_is_accepted_below_one_point_five(self):
-        metrics = self.evaluate(proposal(self.state, 0.2))
-        self.assertAlmostEqual(metrics["total_joint_delta_rad"], 1.4)
-        self.assertAlmostEqual(metrics["max_joint_delta_rad"], 0.2)
+    def test_absolute_sum_above_previous_limit_is_accepted(self):
+        metrics = self.evaluate(proposal(self.state, 0.6))
+        self.assertAlmostEqual(metrics["total_joint_delta_rad"], 4.2)
+        self.assertAlmostEqual(metrics["max_joint_delta_rad"], 0.6)
 
-    def test_exact_total_limit_passes_but_larger_total_fails(self):
+    def test_configured_total_limit_passes_but_larger_total_fails(self):
         measured = state()
         measured["joint_positions_rad"] = [0.0] * 7
-        for delta, accepted in ((0.25, True), (0.2501, False)):
+        limits = Limits(max_total_delta_rad=3.0)
+        for delta, accepted in ((0.5, True), (0.5001, False)):
             message = proposal(measured, 0.0)
             message["target_joint_positions_rad"] = [delta] * 6 + [0.0]
             message["joint_deltas_rad"] = dict(zip(JOINTS, message["target_joint_positions_rad"]))
             if accepted:
-                self.assertEqual(self.evaluate(message, measured)["total_joint_delta_rad"], 1.5)
+                self.assertEqual(self.evaluate(message, measured, limits)["total_joint_delta_rad"], 3.0)
             else:
                 with self.assertRaisesRegex(ProposalError, "delta"):
-                    self.evaluate(message, measured)
+                    self.evaluate(message, measured, limits)
 
-    def test_single_joint_uses_point_three_limit_independently_of_total(self):
-        for delta in (0.299, 0.301):
+    def test_single_joint_uses_point_seven_limit_independently_of_total(self):
+        for delta in (0.699, 0.701):
             message = proposal(self.state, 0.0)
             message["target_joint_positions_rad"][6] += delta
             message["joint_deltas_rad"][JOINTS[6]] = delta
-            if delta < 0.3:
+            if delta < 0.7:
                 self.assertAlmostEqual(self.evaluate(message)["max_joint_delta_rad"], delta)
             else:
                 with self.assertRaises(ProposalError):
@@ -226,7 +227,7 @@ class HttpTest(unittest.TestCase):
         self.assertEqual(record["receipt"], receipt)
 
     def test_rejected_prediction_is_still_delivered_and_receipt_verified(self):
-        receipt = submit_proposal(proposal(self.state, 0.22), url=self.url)
+        receipt = submit_proposal(proposal(self.state, 0.701), url=self.url)
         self.assertEqual(receipt["decision"], "REJECTED")
         self.assertEqual(receipt["code"], "DELTA_LIMIT_EXCEEDED")
         self.assertFalse(receipt["execution_allowed"])

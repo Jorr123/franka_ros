@@ -405,7 +405,11 @@ class RosMoveItPlanner:
         verification["settled_joint_velocities"] = dict(final_snapshot.velocities)
         mode = getattr(self.args, "verification_mode", "enforce")
         outcome = verification_outcome(
-            report, verification, mode=mode, maximum_target_error=self.args.max_delta,
+            report, verification, mode=mode,
+            maximum_target_error=min(
+                self.args.max_delta,
+                getattr(self.args, "max_verification_error", self.args.max_delta),
+            ),
         )
 
         return {

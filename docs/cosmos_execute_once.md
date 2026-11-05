@@ -46,7 +46,7 @@ $python = Join-Path $env:LOCALAPPDATA "CosmosCameraBridge\.venv\Scripts\python.e
 ```
 
 There is no confirmation prompt. This command requests real movement. The
-existing checks still apply: 0.3 rad maximum per joint, 1.5 rad absolute sum,
+existing checks still apply: 0.7 rad maximum per joint, 5.0 rad absolute sum,
 fresh/source-consistent measurements, starting-pose drift, joint limits,
 MoveIt collision planning and waypoint bounds, settled-state checks, original
 30-second observation deadline before execution, and measured verification.
@@ -76,8 +76,8 @@ positions and velocities. Normal enforcement failures now retain these details
 too. A passing report remains `VERIFIED_SUCCESS` in either mode.
 
 Controller faults, missing measurements, excessive settled velocity,
-non-commanded drift, or any final target error greater than the configured
-per-joint movement limit (normally 0.3 rad) still stop execution. Existing
+non-commanded drift, or any final target error greater than 0.3 rad (or a lower configured
+per-joint movement limit) still stop execution. Existing
 pre-execution and planning checks remain enforced. Report-only mode still
 disarms after one attempt; it does not enable a loop or gripper commands.
 Stop and restart without the option to restore normal enforcement.
@@ -130,9 +130,15 @@ For K > 1, the adapter constructs one C2 quintic trajectory through all
 unchanged targets. Adjacent movement in the same direction can flow through
 interior targets without stopping. Turns may require zero velocity. The
 trajectory starts and ends with zero velocity/acceleration. All intermediate
-targets and dense interpolated samples must remain within 0.3 rad per joint
-and 1.5 rad total from the original chunk start; larger K does not expand
+targets and dense interpolated samples must remain within 0.7 rad per joint
+and 5.0 rad total from the original chunk start; larger K does not expand
 those bounds. The hash covers all selected targets and nominal timing.
+
+The current 5.0 rad L1 ceiling is redundant at the default seven-joint,
+0.7 rad per-joint bounds: their maximum possible total is 4.9 rad. A lower
+configured total remains independently enforced. The report-only verification
+hard target-error cutoff remains 0.3 rad (or a lower per-joint movement limit);
+increasing the movement region does not increase permitted tracking error.
 
 Dense collision/bounds samples are checked through MoveIt's
 `/check_state_validity` service at planning and again before execution.

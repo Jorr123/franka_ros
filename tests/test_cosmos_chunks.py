@@ -50,7 +50,7 @@ class ChunkTest(unittest.TestCase):
 
     def test_invalid_interior_is_rejected_even_when_final_target_is_small(self):
         message, core = self.proposal()
-        message["action_chunk"]["joint_positions_rad"][0][0] += 0.31
+        message["action_chunk"]["joint_positions_rad"][0][0] += 0.71
         with self.assertRaisesRegex(ProposalError, "chunk waypoint"):
             evaluate_proposal(message, core.snapshot()[1], Limits(), message["created_at_unix_ms"], mode=PLAN_MODE)
 
@@ -61,19 +61,20 @@ class ChunkTest(unittest.TestCase):
         self.assertAlmostEqual(metrics["max_joint_delta_rad"], 0.21)
 
     def test_interior_total_is_checked_even_when_final_target_is_small(self):
-        for delta, accepted in ((0.249, True), (0.251, False)):
+        limits = Limits(max_total_delta_rad=3.0)
+        for delta, accepted in ((0.499, True), (0.501, False)):
             message, core = self.proposal()
             start = message["basis_state"]["joint_positions_rad"]
             message["action_chunk"]["joint_positions_rad"][0] = [
                 q + (delta if i < 6 else 0) for i, q in enumerate(start)
             ]
             if accepted:
-                metrics = evaluate_proposal(message, core.snapshot()[1], Limits(),
+                metrics = evaluate_proposal(message, core.snapshot()[1], limits,
                                             message["created_at_unix_ms"], mode=PLAN_MODE)
                 self.assertAlmostEqual(metrics["total_joint_delta_rad"], 6 * delta)
             else:
                 with self.assertRaisesRegex(ProposalError, "chunk waypoint"):
-                    evaluate_proposal(message, core.snapshot()[1], Limits(),
+                    evaluate_proposal(message, core.snapshot()[1], limits,
                                       message["created_at_unix_ms"], mode=PLAN_MODE)
 
     def test_protocol_rejects_bad_count_timing_and_endpoint(self):
