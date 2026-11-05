@@ -120,7 +120,7 @@ class CoreTest(unittest.TestCase):
 
     def test_excessive_target_rejected_before_planner(self):
         with self.assertRaises(ProposalError):
-            self.core.prepare_proposal(self.proposal(0.13))
+            self.core.prepare_proposal(self.proposal(0.22))
         self.assertEqual(self.backend.calls, 0)
 
     def test_wrong_hash_expiry_and_supersession_cannot_execute(self):
@@ -195,7 +195,7 @@ class CoreTest(unittest.TestCase):
         for kind in ("overshoot", "nan", "time", "endpoint", "joint_order"):
             changed = deepcopy(trajectory)
             if kind == "overshoot":
-                changed.points.insert(1, point([0.24] * 7, 0.5))
+                changed.points.insert(1, point([0.32] * 7, 0.5))
             elif kind == "nan":
                 changed.points[1].positions[0] = float("nan")
             elif kind == "time":
@@ -212,11 +212,11 @@ class CoreTest(unittest.TestCase):
         self.assertFalse(args.enable_local_execution)
         self.assertEqual(args.state_topic, "/franka/joint_states")
         self.assertEqual(args.max_delta, 0.3)
-        self.assertEqual(args.max_total_delta, 0.9)
+        self.assertEqual(args.max_total_delta, 1.5)
         self.assertEqual(args.velocity_scaling, 0.2)
         self.assertEqual(args.acceleration_scaling, 0.2)
         validate_config(args)
-        for option, value in (("--max-delta", "0.301"), ("--max-total-delta", "0.901"), ("--velocity-scaling", "0.201"), ("--acceleration-scaling", "0.201"), ("--start-state-tolerance", "0.01")):
+        for option, value in (("--max-delta", "0.301"), ("--max-total-delta", "1.501"), ("--velocity-scaling", "0.201"), ("--acceleration-scaling", "0.201"), ("--start-state-tolerance", "0.01")):
             with self.subTest(option=option), self.assertRaises(ValueError):
                 validate_config(parse_args([option, value]))
 

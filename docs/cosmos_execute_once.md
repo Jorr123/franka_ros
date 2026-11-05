@@ -46,7 +46,7 @@ $python = Join-Path $env:LOCALAPPDATA "CosmosCameraBridge\.venv\Scripts\python.e
 ```
 
 There is no confirmation prompt. This command requests real movement. The
-existing checks still apply: 0.3 rad maximum per joint, 0.9 rad absolute sum,
+existing checks still apply: 0.3 rad maximum per joint, 1.5 rad absolute sum,
 fresh/source-consistent measurements, starting-pose drift, joint limits,
 MoveIt collision planning and waypoint bounds, settled-state checks, original
 30-second observation deadline before execution, and measured verification.
@@ -131,7 +131,7 @@ unchanged targets. Adjacent movement in the same direction can flow through
 interior targets without stopping. Turns may require zero velocity. The
 trajectory starts and ends with zero velocity/acceleration. All intermediate
 targets and dense interpolated samples must remain within 0.3 rad per joint
-and 0.9 rad total from the original chunk start; larger K does not expand
+and 1.5 rad total from the original chunk start; larger K does not expand
 those bounds. The hash covers all selected targets and nominal timing.
 
 Dense collision/bounds samples are checked through MoveIt's
